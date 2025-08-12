@@ -9,7 +9,9 @@
     "build": "tsc",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts"
+    "format": "prettier --write src/**/*.ts",
+    "db:init": "ts-node src/database/init.ts",
+    "db:reset": "ts-node src/database/init.ts"
   },
   "keywords": [
     "dam",

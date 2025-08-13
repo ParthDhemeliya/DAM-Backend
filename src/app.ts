@@ -7,6 +7,9 @@ import { testConnection } from './config/database.config'
 import assetsRoutes from './routes/assets.routes'
 import jobsRoutes from './routes/jobs.routes'
 
+// Import middleware
+import { errorHandler } from './middleware/errorHandler'
+
 dotenv.config()
 
 const app = express()
@@ -33,8 +36,22 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/health',
-      assets: '/api/assets',
-      jobs: '/api/jobs',
+      database: '/api/db/test',
+      assets: {
+        base: '/api/assets',
+        byId: '/api/assets/:id',
+        create: 'POST /api/assets',
+        update: 'PUT /api/assets/:id',
+        delete: 'DELETE /api/assets/:id',
+      },
+      jobs: {
+        base: '/api/jobs',
+        byId: '/api/jobs/:id',
+        byAsset: '/api/jobs/asset/:assetId',
+        create: 'POST /api/jobs',
+        update: 'PUT /api/jobs/:id',
+        delete: 'DELETE /api/jobs/:id',
+      },
     },
   })
 })
@@ -71,21 +88,7 @@ app.get('/api/db/test', async (req, res) => {
 })
 
 // Error handling middleware
-app.use(
-  (
-    err: any,
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction
-  ) => {
-    console.error('Error:', err)
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      message: err.message || 'Something went wrong',
-    })
-  }
-)
+app.use(errorHandler)
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -98,11 +101,11 @@ app.use('*', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port: http://localhost:${PORT}`)
-  console.log(`📊 Health check: http://localhost:${PORT}/health`)
-  console.log(`🗄️  Database test: http://localhost:${PORT}/api/db/test`)
-  console.log(`📁 Assets API: http://localhost:${PORT}/api/assets`)
-  console.log(`⚙️  Jobs API: http://localhost:${PORT}/api/jobs`)
+  console.log(` Server running on port: http://localhost:${PORT}`)
+  console.log(` Health check: http://localhost:${PORT}/health`)
+  console.log(` Database test: http://localhost:${PORT}/api/db/test`)
+  console.log(`Assets API: http://localhost:${PORT}/api/assets`)
+  console.log(` Jobs API: http://localhost:${PORT}/api/jobs`)
 })
 
 export default app

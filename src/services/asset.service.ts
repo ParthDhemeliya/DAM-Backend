@@ -1,183 +1,184 @@
-import { Pool } from 'pg';
-import { Asset, CreateAssetRequest, UpdateAssetRequest } from '../interfaces/asset.interface';
-import { getPool } from '../config/database.config';
+import { Pool } from 'pg'
+import {
+  Asset,
+  CreateAssetRequest,
+  UpdateAssetRequest,
+} from '../interfaces/asset.interface'
+import { getPool } from '../config/database.config'
+import {
+  validateString,
+  validateNumber,
+  validateInteger,
+} from '../middleware/validation'
 
-export class AssetService {
-  private pool: Pool;
+// Shared database pool instance
+const pool: Pool = getPool()
 
-  constructor() {
-    this.pool = getPool();
-  }
+// Validate asset data before creation
+const validateAssetData = (assetData: CreateAssetRequest): void => {
+  validateString(assetData.filename, 'filename')
+  validateString(assetData.original_name, 'original_name')
+  validateString(assetData.file_type, 'file_type')
+  validateString(assetData.mime_type, 'mime_type')
+  validateNumber(assetData.file_size, 'file_size', 1)
+  validateString(assetData.storage_path, 'storage_path')
+}
 
-  // Create a new asset
-  async createAsset(assetData: CreateAssetRequest): Promise<Asset> {
+// Validate asset ID
+const validateAssetId = (id: number): void => {
+  validateInteger(id, 'id', 1)
+}
+
+// Create a new asset
+export const createAsset = async (
+  assetData: CreateAssetRequest
+): Promise<Asset> => {
+  try {
+    validateAssetData(assetData)
+
     const query = `
       INSERT INTO assets (filename, original_name, file_type, mime_type, file_size, storage_path, storage_bucket, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `;
-    
+    `
+
     const values = [
-      assetData.filename,
-      assetData.original_name,
-      assetData.file_type,
-      assetData.mime_type,
+      assetData.filename.trim(),
+      assetData.original_name.trim(),
+      assetData.file_type.trim(),
+      assetData.mime_type.trim(),
       assetData.file_size,
-      assetData.storage_path,
+      assetData.storage_path.trim(),
       assetData.storage_bucket || 'dam-assets',
-      JSON.stringify(assetData.metadata || {})
-    ];
+      JSON.stringify(assetData.metadata || {}),
+    ]
 
-    try {
-      const result = await this.pool.query(query, values);
-      return result.rows[0];
-    } catch (error) {
-      console.error('Error creating asset:', error);
-      throw new Error(`Failed to create asset: ${error}`);
+    const result = await pool.query(query, values)
+
+    if (!result.rows[0]) {
+      throw new Error('Failed to create asset - no data returned')
     }
+
+    console.log(`Asset created successfully: ${result.rows[0].filename}`)
+    return result.rows[0]
+  } catch (error) {
+    console.error('Error creating asset:', error)
+    throw error
   }
+}
 
-  // Get asset by ID
-  async getAssetById(id: number): Promise<Asset | null> {
-    const query = 'SELECT * FROM assets WHERE id = $1 AND deleted_at IS NULL';
-    
-    try {
-      const result = await this.pool.query(query, [id]);
-      return result.rows[0] || null;
-    } catch (error) {
-      console.error('Error getting asset by ID:', error);
-      throw new Error(`Failed to get asset: ${error}`);
-    }
+// Get asset by ID
+export const getAssetById = async (id: number): Promise<Asset | null> => {
+  try {
+    validateAssetId(id)
+
+    const query = 'SELECT * FROM assets WHERE id = $1 AND deleted_at IS NULL'
+    const result = await pool.query(query, [id])
+    return result.rows[0] || null
+  } catch (error) {
+    console.error('Error getting asset by ID:', error)
+    throw error
   }
+}
 
-  // Get all assets with optional filtering
-  async getAllAssets(limit: number = 50, offset: number = 0, status?: string): Promise<Asset[]> {
-    let query = 'SELECT * FROM assets WHERE deleted_at IS NULL';
-    const values: any[] = [];
-    let paramCount = 0;
-
-    if (status) {
-      paramCount++;
-      query += ` AND status = $${paramCount}`;
-      values.push(status);
-    }
-
-    query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-    values.push(limit, offset);
-
-    try {
-      const result = await this.pool.query(query, values);
-      return result.rows;
-    } catch (error) {
-      console.error('Error getting all assets:', error);
-      throw new Error(`Failed to get assets: ${error}`);
-    }
+// Get all assets
+export const getAllAssets = async (): Promise<Asset[]> => {
+  try {
+    const query =
+      'SELECT * FROM assets WHERE deleted_at IS NULL ORDER BY created_at DESC'
+    const result = await pool.query(query)
+    return result.rows
+  } catch (error) {
+    console.error('Error getting all assets:', error)
+    throw error
   }
+}
 
-  // Update asset status and other fields
-  async updateAsset(id: number, updateData: UpdateAssetRequest): Promise<Asset | null> {
-    const fields: string[] = [];
-    const values: any[] = [];
-    let paramCount = 0;
+// Update asset
+export const updateAsset = async (
+  id: number,
+  updateData: UpdateAssetRequest
+): Promise<Asset | null> => {
+  try {
+    validateAssetId(id)
+
+    const fields: string[] = []
+    const values: any[] = []
+    let paramCount = 0
 
     // Build dynamic query based on provided fields
     if (updateData.filename !== undefined) {
-      paramCount++;
-      fields.push(`filename = $${paramCount}`);
-      values.push(updateData.filename);
+      validateString(updateData.filename, 'filename')
+      paramCount++
+      fields.push(`filename = $${paramCount}`)
+      values.push(updateData.filename.trim())
     }
 
     if (updateData.status !== undefined) {
-      paramCount++;
-      fields.push(`status = $${paramCount}`);
-      values.push(updateData.status);
+      const validStatuses = [
+        'uploaded',
+        'processing',
+        'processed',
+        'failed',
+        'deleted',
+      ]
+      if (!validStatuses.includes(updateData.status)) {
+        throw new Error(
+          `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+        )
+      }
+      paramCount++
+      fields.push(`status = $${paramCount}`)
+      values.push(updateData.status)
     }
 
     if (updateData.metadata !== undefined) {
-      paramCount++;
-      fields.push(`metadata = $${paramCount}`);
-      values.push(JSON.stringify(updateData.metadata));
-    }
-
-    if (updateData.processed_at !== undefined) {
-      paramCount++;
-      fields.push(`processed_at = $${paramCount}`);
-      values.push(updateData.processed_at);
-    }
-
-    if (updateData.deleted_at !== undefined) {
-      paramCount++;
-      fields.push(`deleted_at = $${paramCount}`);
-      values.push(updateData.deleted_at);
+      paramCount++
+      fields.push(`metadata = $${paramCount}`)
+      values.push(JSON.stringify(updateData.metadata))
     }
 
     if (fields.length === 0) {
-      return this.getAssetById(id);
+      return getAssetById(id)
     }
 
-    paramCount++;
-    fields.push(`updated_at = $${paramCount}`);
-    values.push(new Date());
+    paramCount++
+    fields.push(`updated_at = $${paramCount}`)
+    values.push(new Date())
 
-    paramCount++;
-    values.push(id);
+    paramCount++
+    values.push(id)
 
     const query = `
       UPDATE assets 
       SET ${fields.join(', ')}
       WHERE id = $${paramCount} AND deleted_at IS NULL
       RETURNING *
-    `;
+    `
 
-    try {
-      const result = await this.pool.query(query, values);
-      return result.rows[0] || null;
-    } catch (error) {
-      console.error('Error updating asset:', error);
-      throw new Error(`Failed to update asset: ${error}`);
-    }
+    const result = await pool.query(query, values)
+    return result.rows[0] || null
+  } catch (error) {
+    console.error('Error updating asset:', error)
+    throw error
   }
+}
 
-  // Soft delete asset (set deleted_at timestamp)
-  async deleteAsset(id: number): Promise<boolean> {
+// Delete asset (soft delete)
+export const deleteAsset = async (id: number): Promise<boolean> => {
+  try {
+    validateAssetId(id)
+
     const query = `
       UPDATE assets 
       SET deleted_at = $1, updated_at = $1
       WHERE id = $2 AND deleted_at IS NULL
-    `;
-    
-    try {
-      const result = await this.pool.query(query, [new Date(), id]);
-      return result.rowCount > 0;
-    } catch (error) {
-      console.error('Error deleting asset:', error);
-      throw new Error(`Failed to delete asset: ${error}`);
-    }
-  }
+    `
 
-  // Get assets by file type
-  async getAssetsByType(fileType: string): Promise<Asset[]> {
-    const query = 'SELECT * FROM assets WHERE file_type = $1 AND deleted_at IS NULL ORDER BY created_at DESC';
-    
-    try {
-      const result = await this.pool.query(query, [fileType]);
-      return result.rows;
-    } catch (error) {
-      console.error('Error getting assets by type:', error);
-      throw new Error(`Failed to get assets by type: ${error}`);
-    }
-  }
-
-  // Get assets by status
-  async getAssetsByStatus(status: string): Promise<Asset[]> {
-    const query = 'SELECT * FROM assets WHERE status = $1 AND deleted_at IS NULL ORDER BY created_at DESC';
-    
-    try {
-      const result = await this.pool.query(query, [status]);
-      return result.rows;
-    } catch (error) {
-      console.error('Error getting assets by status:', error);
-      throw new Error(`Failed to get assets by status: ${error}`);
-    }
+    const result = await pool.query(query, [new Date(), id])
+    return result.rowCount ? result.rowCount > 0 : false
+  } catch (error) {
+    console.error('Error deleting asset:', error)
+    throw error
   }
 }

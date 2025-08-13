@@ -1,6 +1,3 @@
--- DAM Database Schema
--- This file creates the necessary tables for Digital Asset Management
-
 -- Create Assets table
 CREATE TABLE IF NOT EXISTS assets (
     id SERIAL PRIMARY KEY,
@@ -18,6 +15,7 @@ CREATE TABLE IF NOT EXISTS assets (
     processed_at TIMESTAMP NULL,
     deleted_at TIMESTAMP NULL
 );
+
 
 -- Create Jobs table for background processing tasks
 CREATE TABLE IF NOT EXISTS jobs (

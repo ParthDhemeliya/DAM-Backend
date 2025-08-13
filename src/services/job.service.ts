@@ -1,265 +1,198 @@
-import { Pool } from 'pg';
-import { Job, CreateJobRequest, UpdateJobRequest } from '../interfaces/job.interface';
-import { getPool } from '../config/database.config';
+import { Pool } from 'pg'
+import {
+  Job,
+  CreateJobRequest,
+  UpdateJobRequest,
+} from '../interfaces/job.interface'
+import { getPool } from '../config/database.config'
+import {
+  validateString,
+  validateNumber,
+  validateInteger,
+} from '../middleware/validation'
 
-export class JobService {
-  private pool: Pool;
+// Shared database pool instance
+const pool: Pool = getPool()
 
-  constructor() {
-    this.pool = getPool();
+// Validate job data before creation
+const validateJobData = (jobData: CreateJobRequest): void => {
+  validateInteger(jobData.asset_id, 'asset_id', 1)
+  validateString(jobData.job_type, 'job_type')
+  validateString(jobData.status, 'status')
+  if (jobData.priority !== undefined) {
+    validateNumber(jobData.priority, 'priority', 1, 10)
   }
+}
 
-  // Create a new job
-  async createJob(jobData: CreateJobRequest): Promise<Job> {
+// Validate job ID
+const validateJobId = (id: number): void => {
+  validateInteger(id, 'id', 1)
+}
+
+// Create a new job
+export const createJob = async (jobData: CreateJobRequest): Promise<Job> => {
+  try {
+    validateJobData(jobData)
+
     const query = `
-      INSERT INTO jobs (job_type, asset_id, priority, input_data)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO jobs (asset_id, job_type, status, priority, progress, result, error_message)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
-    `;
-    
+    `
+
     const values = [
-      jobData.job_type,
       jobData.asset_id,
-      jobData.priority || 1,
-      JSON.stringify(jobData.input_data || {})
-    ];
+      jobData.job_type,
+      jobData.status || 'pending',
+      jobData.priority || 5,
+      jobData.progress || 0,
+      jobData.result || null,
+      jobData.error_message || null,
+    ]
 
-    try {
-      const result = await this.pool.query(query, values);
-      return result.rows[0];
-    } catch (error) {
-      console.error('Error creating job:', error);
-      throw new Error(`Failed to create job: ${error}`);
+    const result = await pool.query(query, values)
+
+    if (!result.rows[0]) {
+      throw new Error('Failed to create job - no data returned')
     }
+
+    console.log(
+      `Job created successfully: ${result.rows[0].job_type} for asset ${result.rows[0].asset_id}`
+    )
+    return result.rows[0]
+  } catch (error) {
+    console.error('Error creating job:', error)
+    throw error
   }
+}
 
-  // Get job by ID
-  async getJobById(id: number): Promise<Job | null> {
-    const query = 'SELECT * FROM jobs WHERE id = $1';
-    
-    try {
-      const result = await this.pool.query(query, [id]);
-      return result.rows[0] || null;
-    } catch (error) {
-      console.error('Error getting job by ID:', error);
-      throw new Error(`Failed to get job: ${error}`);
-    }
+// get job by id
+export const getJobById = async (id: number): Promise<Job | null> => {
+  try {
+    validateJobId(id)
+
+    const query = 'SELECT * FROM jobs WHERE id = $1'
+    const result = await pool.query(query, [id])
+    return result.rows[0] || null
+  } catch (error) {
+    console.error('Error getting job by ID:', error)
+    throw error
   }
+}
 
-  // Get all jobs with optional filtering
-  async getAllJobs(limit: number = 50, offset: number = 0, status?: string): Promise<Job[]> {
-    let query = 'SELECT * FROM jobs';
-    const values: any[] = [];
-    let paramCount = 0;
-
-    if (status) {
-      paramCount++;
-      query += ` WHERE status = $${paramCount}`;
-      values.push(status);
-    }
-
-    query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-    values.push(limit, offset);
-
-    try {
-      const result = await this.pool.query(query, values);
-      return result.rows;
-    } catch (error) {
-      console.error('Error getting all jobs:', error);
-      throw new Error(`Failed to get jobs: ${error}`);
-    }
+// Get all jobs
+export const getAllJobs = async (): Promise<Job[]> => {
+  try {
+    const query = 'SELECT * FROM jobs ORDER BY created_at DESC'
+    const result = await pool.query(query)
+    return result.rows
+  } catch (error) {
+    console.error('Error getting all jobs:', error)
+    throw error
   }
+}
 
-  // Get jobs by asset ID
-  async getJobsByAssetId(assetId: number): Promise<Job[]> {
-    const query = 'SELECT * FROM jobs WHERE asset_id = $1 ORDER BY created_at DESC';
-    
-    try {
-      const result = await this.pool.query(query, [assetId]);
-      return result.rows;
-    } catch (error) {
-      console.error('Error getting jobs by asset ID:', error);
-      throw new Error(`Failed to get jobs by asset ID: ${error}`);
-    }
+// get jobs by asset id
+export const getJobsByAssetId = async (assetId: number): Promise<Job[]> => {
+  try {
+    validateInteger(assetId, 'asset_id', 1)
+
+    const query =
+      'SELECT * FROM jobs WHERE asset_id = $1 ORDER BY created_at DESC'
+    const result = await pool.query(query, [assetId])
+    return result.rows
+  } catch (error) {
+    console.error('Error getting jobs by asset ID:', error)
+    throw error
   }
+}
 
-  // Get jobs by type
-  async getJobsByType(jobType: string): Promise<Job[]> {
-    const query = 'SELECT * FROM jobs WHERE job_type = $1 ORDER BY created_at DESC';
-    
-    try {
-      const result = await this.pool.query(query, [jobType]);
-      return result.rows;
-    } catch (error) {
-      console.error('Error getting jobs by type:', error);
-      throw new Error(`Failed to get jobs by type: ${error}`);
-    }
-  }
+// Update job
+export const updateJob = async (
+  id: number,
+  updateData: UpdateJobRequest
+): Promise<Job | null> => {
+  try {
+    validateJobId(id)
 
-  // Update job status and other fields
-  async updateJob(id: number, updateData: UpdateJobRequest): Promise<Job | null> {
-    const fields: string[] = [];
-    const values: any[] = [];
-    let paramCount = 0;
+    const fields: string[] = []
+    const values: any[] = []
+    let paramCount = 0
 
     // Build dynamic query based on provided fields
     if (updateData.status !== undefined) {
-      paramCount++;
-      fields.push(`status = $${paramCount}`);
-      values.push(updateData.status);
-    }
-
-    if (updateData.priority !== undefined) {
-      paramCount++;
-      fields.push(`priority = $${paramCount}`);
-      values.push(updateData.priority);
+      const validStatuses = [
+        'pending',
+        'running',
+        'completed',
+        'failed',
+        'cancelled',
+      ]
+      if (!validStatuses.includes(updateData.status)) {
+        throw new Error(
+          `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+        )
+      }
+      paramCount++
+      fields.push(`status = $${paramCount}`)
+      values.push(updateData.status)
     }
 
     if (updateData.progress !== undefined) {
-      paramCount++;
-      fields.push(`progress = $${paramCount}`);
-      values.push(updateData.progress);
+      validateNumber(updateData.progress, 'progress', 0, 100)
+      paramCount++
+      fields.push(`progress = $${paramCount}`)
+      values.push(updateData.progress)
     }
 
-    if (updateData.input_data !== undefined) {
-      paramCount++;
-      fields.push(`input_data = $${paramCount}`);
-      values.push(JSON.stringify(updateData.input_data));
-    }
-
-    if (updateData.output_data !== undefined) {
-      paramCount++;
-      fields.push(`output_data = $${paramCount}`);
-      values.push(JSON.stringify(updateData.output_data));
+    if (updateData.result !== undefined) {
+      paramCount++
+      fields.push(`result = $${paramCount}`)
+      values.push(updateData.result)
     }
 
     if (updateData.error_message !== undefined) {
-      paramCount++;
-      fields.push(`error_message = $${paramCount}`);
-      values.push(updateData.error_message);
-    }
-
-    if (updateData.started_at !== undefined) {
-      paramCount++;
-      fields.push(`started_at = $${paramCount}`);
-      values.push(updateData.started_at);
-    }
-
-    if (updateData.completed_at !== undefined) {
-      paramCount++;
-      fields.push(`completed_at = $${paramCount}`);
-      values.push(updateData.completed_at);
+      paramCount++
+      fields.push(`error_message = $${paramCount}`)
+      values.push(updateData.error_message)
     }
 
     if (fields.length === 0) {
-      return this.getJobById(id);
+      return getJobById(id)
     }
 
-    paramCount++;
-    fields.push(`updated_at = $${paramCount}`);
-    values.push(new Date());
+    paramCount++
+    fields.push(`updated_at = $${paramCount}`)
+    values.push(new Date())
 
-    paramCount++;
-    values.push(id);
+    paramCount++
+    values.push(id)
 
     const query = `
       UPDATE jobs 
       SET ${fields.join(', ')}
       WHERE id = $${paramCount}
       RETURNING *
-    `;
+    `
 
-    try {
-      const result = await this.pool.query(query, values);
-      return result.rows[0] || null;
-    } catch (error) {
-      console.error('Error updating job:', error);
-      throw new Error(`Failed to update job: ${error}`);
-    }
+    const result = await pool.query(query, values)
+    return result.rows[0] || null
+  } catch (error) {
+    console.error('Error updating job:', error)
+    throw error
   }
+}
 
-  // Start a job (set status to processing and started_at)
-  async startJob(id: number): Promise<Job | null> {
-    return this.updateJob(id, {
-      status: 'processing',
-      started_at: new Date()
-    });
-  }
+// Delete job
+export const deleteJob = async (id: number): Promise<boolean> => {
+  try {
+    validateJobId(id)
 
-  // Complete a job (set status to completed and completed_at)
-  async completeJob(id: number, outputData?: Record<string, any>): Promise<Job | null> {
-    return this.updateJob(id, {
-      status: 'completed',
-      progress: 100,
-      completed_at: new Date(),
-      output_data: outputData
-    });
-  }
-
-  // Fail a job (set status to failed and error message)
-  async failJob(id: number, errorMessage: string): Promise<Job | null> {
-    return this.updateJob(id, {
-      status: 'failed',
-      error_message: errorMessage,
-      completed_at: new Date()
-    });
-  }
-
-  // Get pending jobs (for processing)
-  async getPendingJobs(limit: number = 10): Promise<Job[]> {
-    const query = `
-      SELECT * FROM jobs 
-      WHERE status = 'pending' 
-      ORDER BY priority DESC, created_at ASC 
-      LIMIT $1
-    `;
-    
-    try {
-      const result = await this.pool.query(query, [limit]);
-      return result.rows;
-    } catch (error) {
-      console.error('Error getting pending jobs:', error);
-      throw new Error(`Failed to get pending jobs: ${error}`);
-    }
-  }
-
-  // Get job statistics
-  async getJobStats(): Promise<{
-    total: number;
-    pending: number;
-    processing: number;
-    completed: number;
-    failed: number;
-    cancelled: number;
-  }> {
-    const query = `
-      SELECT 
-        status,
-        COUNT(*) as count
-      FROM jobs 
-      GROUP BY status
-    `;
-    
-    try {
-      const result = await this.pool.query(query);
-      const stats = {
-        total: 0,
-        pending: 0,
-        processing: 0,
-        completed: 0,
-        failed: 0,
-        cancelled: 0
-      };
-
-      result.rows.forEach(row => {
-        stats[row.status as keyof typeof stats] = parseInt(row.count);
-        stats.total += parseInt(row.count);
-      });
-
-      return stats;
-    } catch (error) {
-      console.error('Error getting job stats:', error);
-      throw new Error(`Failed to get job stats: ${error}`);
-    }
+    const query = 'DELETE FROM jobs WHERE id = $1'
+    const result = await pool.query(query, [id])
+    return result.rowCount ? result.rowCount > 0 : false
+  } catch (error) {
+    console.error('Error deleting job:', error)
+    throw error
   }
 }

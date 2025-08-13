@@ -1,286 +1,105 @@
-import { Router } from 'express';
-import { JobService } from '../services/job.service';
-import { CreateJobRequest, UpdateJobRequest } from '../interfaces/job.interface';
+import { Router } from 'express'
+import {
+  createJob,
+  getJobById,
+  getAllJobs,
+  updateJob,
+  deleteJob,
+  getJobsByAssetId,
+} from '../services/job.service'
+import { CreateJobRequest, UpdateJobRequest } from '../interfaces/job.interface'
 
-const router = Router();
-const jobService = new JobService();
+const router = Router()
 
-// GET /api/jobs - Get all jobs
+// Get all jobs
 router.get('/', async (req, res) => {
   try {
-    const { limit = 50, offset = 0, status } = req.query;
-    const jobs = await jobService.getAllJobs(
-      parseInt(limit as string),
-      parseInt(offset as string),
-      status as string
-    );
-    
-    res.json({
-      success: true,
-      data: jobs,
-      count: jobs.length
-    });
+    const jobs = await getAllJobs()
+    res.json({ success: true, data: jobs, count: jobs.length })
   } catch (error) {
-    console.error('Error getting jobs:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get jobs'
-    });
+    console.error('Error getting all jobs:', error)
+    res.status(500).json({ success: false, error: 'Failed to get jobs' })
   }
-});
+})
 
-// GET /api/jobs/:id - Get job by ID
+// Get job by ID
 router.get('/:id', async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const job = await jobService.getJobById(id);
-    
+    const id = parseInt(req.params.id)
+    const job = await getJobById(id)
+
     if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: 'Job not found'
-      });
+      return res.status(404).json({ success: false, error: 'Job not found' })
     }
-    
-    res.json({
-      success: true,
-      data: job
-    });
-  } catch (error) {
-    console.error('Error getting job:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get job'
-    });
-  }
-});
 
-// POST /api/jobs - Create new job
-router.post('/', async (req, res) => {
-  try {
-    const jobData: CreateJobRequest = req.body;
-    
-    // Basic validation
-    if (!jobData.job_type || !jobData.asset_id) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: job_type, asset_id'
-      });
-    }
-    
-    const job = await jobService.createJob(jobData);
-    
-    res.status(201).json({
-      success: true,
-      data: job,
-      message: 'Job created successfully'
-    });
+    res.json({ success: true, data: job })
   } catch (error) {
-    console.error('Error creating job:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create job'
-    });
+    console.error('Error getting job by ID:', error)
+    res.status(500).json({ success: false, error: 'Failed to get job' })
   }
-});
+})
 
-// PUT /api/jobs/:id - Update job
-router.put('/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const updateData: UpdateJobRequest = req.body;
-    
-    const job = await jobService.updateJob(id, updateData);
-    
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: 'Job not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: job,
-      message: 'Job updated successfully'
-    });
-  } catch (error) {
-    console.error('Error updating job:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update job'
-    });
-  }
-});
-
-// GET /api/jobs/asset/:assetId - Get jobs by asset ID
+// Get jobs by asset ID
 router.get('/asset/:assetId', async (req, res) => {
   try {
-    const assetId = parseInt(req.params.assetId);
-    const jobs = await jobService.getJobsByAssetId(assetId);
-    
-    res.json({
-      success: true,
-      data: jobs,
-      count: jobs.length
-    });
+    const assetId = parseInt(req.params.assetId)
+    const jobs = await getJobsByAssetId(assetId)
+    res.json({ success: true, data: jobs, count: jobs.length })
   } catch (error) {
-    console.error('Error getting jobs by asset ID:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get jobs by asset ID'
-    });
+    console.error('Error getting jobs by asset ID:', error)
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to get jobs by asset' })
   }
-});
+})
 
-// GET /api/jobs/type/:jobType - Get jobs by type
-router.get('/type/:jobType', async (req, res) => {
+//  Create new job
+router.post('/', async (req, res) => {
   try {
-    const jobType = req.params.jobType;
-    const jobs = await jobService.getJobsByType(jobType);
-    
-    res.json({
-      success: true,
-      data: jobs,
-      count: jobs.length
-    });
+    const jobData: CreateJobRequest = req.body
+    const job = await createJob(jobData)
+    res
+      .status(201)
+      .json({ success: true, data: job, message: 'Job created successfully' })
   } catch (error) {
-    console.error('Error getting jobs by type:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get jobs by type'
-    });
+    console.error('Error creating job:', error)
+    res.status(400).json({ success: false, error: 'Failed to create job' })
   }
-});
+})
 
-// GET /api/jobs/pending - Get pending jobs
-router.get('/pending', async (req, res) => {
+// Update job
+router.put('/:id', async (req, res) => {
   try {
-    const { limit = 10 } = req.query;
-    const jobs = await jobService.getPendingJobs(parseInt(limit as string));
-    
-    res.json({
-      success: true,
-      data: jobs,
-      count: jobs.length
-    });
-  } catch (error) {
-    console.error('Error getting pending jobs:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get pending jobs'
-    });
-  }
-});
+    const id = parseInt(req.params.id)
+    const updateData: UpdateJobRequest = req.body
+    const job = await updateJob(id, updateData)
 
-// POST /api/jobs/:id/start - Start a job
-router.post('/:id/start', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const job = await jobService.startJob(id);
-    
     if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: 'Job not found'
-      });
+      return res.status(404).json({ success: false, error: 'Job not found' })
     }
-    
-    res.json({
-      success: true,
-      data: job,
-      message: 'Job started successfully'
-    });
-  } catch (error) {
-    console.error('Error starting job:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to start job'
-    });
-  }
-});
 
-// POST /api/jobs/:id/complete - Complete a job
-router.post('/:id/complete', async (req, res) => {
+    res.json({ success: true, data: job, message: 'Job updated successfully' })
+  } catch (error) {
+    console.error('Error updating job:', error)
+    res.status(400).json({ success: false, error: 'Failed to update job' })
+  }
+})
+
+//  Delete job
+router.delete('/:id', async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const { output_data } = req.body;
-    
-    const job = await jobService.completeJob(id, output_data);
-    
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: 'Job not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: job,
-      message: 'Job completed successfully'
-    });
-  } catch (error) {
-    console.error('Error completing job:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to complete job'
-    });
-  }
-});
+    const id = parseInt(req.params.id)
+    const deleted = await deleteJob(id)
 
-// POST /api/jobs/:id/fail - Fail a job
-router.post('/:id/fail', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const { error_message } = req.body;
-    
-    if (!error_message) {
-      return res.status(400).json({
-        success: false,
-        error: 'Error message is required'
-      });
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: 'Job not found' })
     }
-    
-    const job = await jobService.failJob(id, error_message);
-    
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        error: 'Job not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: job,
-      message: 'Job marked as failed'
-    });
-  } catch (error) {
-    console.error('Error failing job:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to mark job as failed'
-    });
-  }
-});
 
-// GET /api/jobs/stats - Get job statistics
-router.get('/stats', async (req, res) => {
-  try {
-    const stats = await jobService.getJobStats();
-    
-    res.json({
-      success: true,
-      data: stats
-    });
+    res.json({ success: true, message: 'Job deleted successfully' })
   } catch (error) {
-    console.error('Error getting job stats:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get job statistics'
-    });
+    console.error('Error deleting job:', error)
+    res.status(500).json({ success: false, error: 'Failed to delete job' })
   }
-});
+})
 
-export default router;
+export default router

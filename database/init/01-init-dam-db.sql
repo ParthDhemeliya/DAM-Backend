@@ -1,7 +1,4 @@
--- DAM Database Initialization Script
--- This script creates the initial database structure for the Digital Asset Management system
-
--- Create extensions
+--Create extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 

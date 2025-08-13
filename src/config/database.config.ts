@@ -21,10 +21,10 @@ const dbConfig: DatabaseConfig = {
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'dam_db',
   user: process.env.DB_USER || 'dam_user',
-  password: process.env.DB_PASSWORD || 'dam_password',
-  max: 20, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+  password: process.env.DB_PASSWORD || '123',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 }
 
 // Create a new pool instance
@@ -40,11 +40,11 @@ pool.on('error', (err) => {
 export const testConnection = async (): Promise<boolean> => {
   try {
     const client = await pool.connect()
-    console.log(' Database connection successful!')
+    console.log('Database connection successful!')
     client.release()
     return true
   } catch (error) {
-    console.error(' Database connection failed:', error)
+    console.error('Database connection failed:', error)
     return false
   }
 }

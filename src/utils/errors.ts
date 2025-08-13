@@ -1,10 +1,12 @@
-// Error factory functions (no classes)
+import { ErrorType, HttpStatus } from '../types/error.types'
+
+// Error factory functions using enums
 export const createApiError = (
   message: string,
-  statusCode: number = 500,
+  statusCode: number = HttpStatus.INTERNAL_SERVER,
   isOperational: boolean = true
 ) => ({
-  name: 'ApiError',
+  name: ErrorType.API_ERROR,
   message,
   statusCode,
   isOperational,
@@ -12,9 +14,9 @@ export const createApiError = (
 })
 
 export const createValidationError = (message: string) => ({
-  name: 'ValidationError',
+  name: ErrorType.VALIDATION_ERROR,
   message,
-  statusCode: 400,
+  statusCode: HttpStatus.BAD_REQUEST,
   isOperational: true,
   stack: new Error().stack,
 })
@@ -22,9 +24,9 @@ export const createValidationError = (message: string) => ({
 export const createNotFoundError = (
   message: string = 'Resource not found'
 ) => ({
-  name: 'NotFoundError',
+  name: ErrorType.NOT_FOUND,
   message,
-  statusCode: 404,
+  statusCode: HttpStatus.NOT_FOUND,
   isOperational: true,
   stack: new Error().stack,
 })
@@ -32,25 +34,25 @@ export const createNotFoundError = (
 export const createUnauthorizedError = (
   message: string = 'Unauthorized access'
 ) => ({
-  name: 'UnauthorizedError',
+  name: ErrorType.UNAUTHORIZED,
   message,
-  statusCode: 401,
+  statusCode: HttpStatus.UNAUTHORIZED,
   isOperational: true,
   stack: new Error().stack,
 })
 
 export const createForbiddenError = (message: string = 'Forbidden access') => ({
-  name: 'ForbiddenError',
+  name: ErrorType.FORBIDDEN,
   message,
-  statusCode: 403,
+  statusCode: HttpStatus.FORBIDDEN,
   isOperational: true,
   stack: new Error().stack,
 })
 
 export const createConflictError = (message: string = 'Resource conflict') => ({
-  name: 'ConflictError',
+  name: ErrorType.CONFLICT,
   message,
-  statusCode: 409,
+  statusCode: HttpStatus.CONFLICT,
   isOperational: true,
   stack: new Error().stack,
 })
@@ -58,9 +60,9 @@ export const createConflictError = (message: string = 'Resource conflict') => ({
 export const createRateLimitError = (
   message: string = 'Too many requests'
 ) => ({
-  name: 'RateLimitError',
+  name: ErrorType.RATE_LIMIT,
   message,
-  statusCode: 429,
+  statusCode: HttpStatus.RATE_LIMIT,
   isOperational: true,
   stack: new Error().stack,
 })
@@ -68,9 +70,9 @@ export const createRateLimitError = (
 export const createDatabaseError = (
   message: string = 'Database operation failed'
 ) => ({
-  name: 'DatabaseError',
+  name: ErrorType.DATABASE_ERROR,
   message,
-  statusCode: 500,
+  statusCode: HttpStatus.INTERNAL_SERVER,
   isOperational: false,
   stack: new Error().stack,
 })

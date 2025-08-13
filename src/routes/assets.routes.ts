@@ -10,19 +10,19 @@ import {
   CreateAssetRequest,
   UpdateAssetRequest,
 } from '../interfaces/asset.interface'
+import { asyncHandler } from '../middleware/asyncHandler'
+import { IRequest } from 'minio/dist/main/internal/type'
 
 const router = Router()
 
 // Get all assets
-router.get('/', async (req, res) => {
-  try {
+router.get(
+  '/',
+  asyncHandler(async (req: any, res: any) => {
     const assets = await getAllAssets()
     res.json({ success: true, data: assets, count: assets.length })
-  } catch (error) {
-    console.error('Error getting all assets:', error)
-    res.status(500).json({ success: false, error: 'Failed to get assets' })
-  }
-})
+  })
+)
 
 //  Get asset by ID
 router.get('/:id', async (req, res) => {
@@ -44,16 +44,47 @@ router.get('/:id', async (req, res) => {
 // Create new asset
 router.post('/', async (req, res) => {
   try {
+    console.log('=== ASSET CREATION REQUEST START ===')
+    console.log('Request headers:', req.headers)
+    console.log('Request body:', req.body)
+    console.log('Request body type:', typeof req.body)
+    console.log('Request body keys:', Object.keys(req.body || {}))
+
     const assetData: CreateAssetRequest = req.body
+    console.log('Parsed asset data:', assetData)
+    console.log('Asset data validation starting...')
+
     const asset = await createAsset(assetData)
+    console.log('Asset created successfully:', asset)
+
     res.status(201).json({
       success: true,
       data: asset,
       message: 'Asset created successfully',
     })
   } catch (error) {
-    console.error('Error creating asset:', error)
-    res.status(400).json({ success: false, error: 'Failed to create asset' })
+    console.error('=== ASSET CREATION ERROR ===')
+    console.error('Error type:', typeof error)
+    console.error('Error constructor:', error?.constructor?.name)
+
+    // Use type guards to safely access error properties
+    if (error && typeof error === 'object' && 'message' in error) {
+      console.error('Error message:', (error as any).message)
+    }
+    if (error && typeof error === 'object' && 'stack' in error) {
+      console.error('Error stack:', (error as any).stack)
+    }
+    console.error('Full error object:', error)
+
+    // Return the actual error message for debugging
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    res.status(400).json({
+      success: false,
+      error: 'Failed to create asset',
+      details: errorMessage,
+      receivedData: req.body,
+    })
   }
 })
 
@@ -79,7 +110,7 @@ router.put('/:id', async (req, res) => {
   }
 })
 
-// Delete asset (soft delete)
+// Delete asset
 router.delete('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id)

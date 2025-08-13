@@ -87,6 +87,62 @@ app.get('/api/db/test', async (req, res) => {
   }
 })
 
+// Debug endpoint to check table structure
+app.get('/api/db/debug', async (req, res) => {
+  try {
+    const pool = require('./config/database.config').default
+    const result = await pool.query(`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = 'assets' 
+      ORDER BY ordinal_position
+    `)
+
+    res.json({
+      success: true,
+      tableStructure: result.rows,
+      timestamp: new Date().toISOString(),
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get table structure',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    })
+  }
+})
+
+// Debug endpoint to check jobs table structure
+app.get('/api/db/debug/jobs', async (req, res) => {
+  try {
+    const pool = require('./config/database.config').default
+    const result = await pool.query(`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = 'jobs' 
+      ORDER BY ordinal_position
+    `)
+
+    // Also get a sample row to see the actual data structure
+    const sampleResult = await pool.query('SELECT * FROM jobs LIMIT 1')
+
+    res.json({
+      success: true,
+      tableStructure: result.rows,
+      sampleData: sampleResult.rows[0] || null,
+      timestamp: new Date().toISOString(),
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get jobs table structure',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    })
+  }
+})
+
 // Error handling middleware
 app.use(errorHandler)
 

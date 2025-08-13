@@ -1,4 +1,5 @@
 import { Request } from 'express'
+import { HttpStatus } from '../types/error.types'
 
 // Error response interface
 export interface ErrorResponse {
@@ -26,7 +27,7 @@ export const createErrorResponse = (
   req?: Request,
   statusCode?: number
 ): ErrorResponse => {
-  const code = statusCode || error.statusCode || 500
+  const code = statusCode || error.statusCode || HttpStatus.INTERNAL_SERVER
 
   return {
     success: false,

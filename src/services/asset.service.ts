@@ -34,13 +34,22 @@ export const createAsset = async (
   assetData: CreateAssetRequest
 ): Promise<Asset> => {
   try {
-    validateAssetData(assetData)
+    console.log('=== CREATE ASSET SERVICE START ===')
+    console.log('Input asset data:', assetData)
+    console.log('Asset data type:', typeof assetData)
+    console.log('Asset data keys:', Object.keys(assetData || {}))
 
+    console.log('Starting validation...')
+    validateAssetData(assetData)
+    console.log('Asset data validation passed')
+
+    console.log('Building SQL query...')
     const query = `
       INSERT INTO assets (filename, original_name, file_type, mime_type, file_size, storage_path, storage_bucket, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `
+    console.log('SQL Query:', query)
 
     const values = [
       assetData.filename.trim(),
@@ -52,8 +61,16 @@ export const createAsset = async (
       assetData.storage_bucket || 'dam-assets',
       JSON.stringify(assetData.metadata || {}),
     ]
+    console.log('Query values:', values)
+    console.log(
+      'Values types:',
+      values.map((v) => typeof v)
+    )
 
+    console.log('Executing database query...')
     const result = await pool.query(query, values)
+    console.log('Database query result:', result)
+    console.log('Result rows:', result.rows)
 
     if (!result.rows[0]) {
       throw new Error('Failed to create asset - no data returned')
@@ -62,8 +79,24 @@ export const createAsset = async (
     console.log(`Asset created successfully: ${result.rows[0].filename}`)
     return result.rows[0]
   } catch (error) {
-    console.error('Error creating asset:', error)
-    throw error
+    console.error('=== CREATE ASSET SERVICE ERROR ===')
+    console.error('Error type:', typeof error)
+    console.error('Error constructor:', error?.constructor?.name)
+
+    // Use type guards to safely access error properties
+    if (error && typeof error === 'object' && 'message' in error) {
+      console.error('Error message:', (error as any).message)
+    }
+    if (error && typeof error === 'object' && 'stack' in error) {
+      console.error('Error stack:', (error as any).stack)
+    }
+    console.error('Full error object:', error)
+
+    // Re-throw with more context
+    if (error instanceof Error) {
+      throw new Error(`Asset creation failed: ${error.message}`)
+    }
+    throw new Error('Asset creation failed with unknown error')
   }
 }
 

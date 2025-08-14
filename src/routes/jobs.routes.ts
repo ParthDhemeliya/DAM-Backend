@@ -57,7 +57,7 @@ router.get('/asset/:assetId', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const jobData: CreateJobRequest = req.body
-    console.log('Creating job with data:', jobData)
+    // Creating job
     const job = await createJob(jobData)
     res
       .status(201)
@@ -81,7 +81,7 @@ router.put('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const updateData: UpdateJobRequest = req.body
-    console.log('Updating job with ID:', id, 'Data:', updateData)
+    // Updating job
     const job = await updateJob(id, updateData)
 
     if (!job) {

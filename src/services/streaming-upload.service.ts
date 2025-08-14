@@ -3,6 +3,7 @@ import { uploadFile } from './storage'
 import { getPool } from '../config/database.config'
 import { Pool } from 'pg'
 import { CreateAssetRequest, FileType } from '../interfaces/asset.interface'
+import { addAssetProcessingJob } from './queue.service'
 
 // Shared database pool instance
 const pool: Pool = getPool()
@@ -26,55 +27,41 @@ export interface UploadResult {
   metadata?: any
 }
 
-/**
- * Upload a file stream directly to MinIO without buffering in memory
- * This function handles large files efficiently by streaming chunk-by-chunk
- */
 export async function uploadStreamAsset(
   input: StreamAssetInput
 ): Promise<UploadResult> {
   const { filename, mimeType, userId, stream, metadata } = input
 
-  // 1. Generate a unique storage key
+  // Generate a unique storage key
   const timestamp = Date.now()
   const sanitizedFilename = sanitizeFilename(filename)
   const key = `users/${userId}/${timestamp}-${sanitizedFilename}`
   const bucket = process.env.MINIO_BUCKET || 'dam-media'
 
-  // 2. Create a transform stream that counts bytes and forwards data
   let totalSize = 0
   const countingStream = new Transform({
     transform(chunk: Buffer, encoding: string, callback: Function) {
       totalSize += chunk.length
-      // Forward the chunk to the next stream
       callback(null, chunk)
     },
   })
 
-  // 3. Create a promise that resolves when the upload is complete
   const uploadPromise = new Promise<void>((resolve, reject) => {
-    // Handle stream errors
     stream.on('error', reject)
     countingStream.on('error', reject)
 
-    // Handle upload completion
-    countingStream.on('end', () => {
-      console.log(`File ${filename} size calculated: ${totalSize} bytes`)
-    })
+    countingStream.on('end', () => {})
 
-    // Start the upload process - uploadFile only takes 2 parameters
     uploadFile(key, countingStream)
       .then(() => resolve())
       .catch(reject)
   })
 
-  // 4. Pipe the incoming stream through our counting stream
+  // Pipe the incoming stream through our counting stream
   stream.pipe(countingStream)
 
-  // 5. Wait for the upload to complete
   await uploadPromise
 
-  // 6. Prepare asset data for database
   const assetData: CreateAssetRequest = {
     filename: sanitizedFilename,
     original_name: filename,
@@ -92,7 +79,6 @@ export async function uploadStreamAsset(
     },
   }
 
-  // 7. Store metadata in database
   const query = `
     INSERT INTO assets (filename, original_name, file_type, mime_type, file_size, storage_path, storage_bucket, metadata)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -116,8 +102,60 @@ export async function uploadStreamAsset(
     throw new Error('Failed to create asset record in database')
   }
 
+  const assetId = result.rows[0].id
+
+  try {
+    const jobPromises = []
+
+    jobPromises.push(
+      addAssetProcessingJob('metadata', {
+        assetId,
+        priority: 1,
+        options: {
+          fileType: assetData.file_type,
+          mimeType: assetData.mime_type,
+        },
+      })
+    )
+
+    if (assetData.file_type === 'image') {
+      jobPromises.push(
+        addAssetProcessingJob('thumbnail', {
+          assetId,
+          priority: 2,
+          options: { size: '300x300', quality: 80 },
+        })
+      )
+    }
+
+    if (assetData.file_type === 'video') {
+      jobPromises.push(
+        addAssetProcessingJob('conversion', {
+          assetId,
+          priority: 3,
+          options: { format: 'mp4', quality: 'medium' },
+        })
+      )
+    }
+
+    jobPromises.push(
+      addAssetProcessingJob('cleanup', {
+        assetId,
+        priority: 5,
+        options: { cleanupType: 'temp_files' },
+      })
+    )
+
+    await Promise.all(jobPromises)
+  } catch (jobError) {
+    console.warn(
+      `Failed to create processing jobs for asset ${assetId}:`,
+      jobError
+    )
+  }
+
   return {
-    id: result.rows[0].id,
+    id: assetId,
     bucket,
     key,
     originalName: filename,
@@ -128,10 +166,8 @@ export async function uploadStreamAsset(
   }
 }
 
-/**
- * Handle multiple file uploads with streaming
- * This function processes multiple files concurrently without memory spikes
- */
+// Handle multiple file uploads with streaming
+
 export async function uploadMultipleStreamAssets(
   files: StreamAssetInput[],
   maxConcurrency: number = 5
@@ -139,12 +175,8 @@ export async function uploadMultipleStreamAssets(
   const results: UploadResult[] = []
   const errors: Error[] = []
 
-  // Process files in batches to control concurrency
   for (let i = 0; i < files.length; i += maxConcurrency) {
     const batch = files.slice(i, i + maxConcurrency)
-    console.log(
-      ` Processing batch ${Math.floor(i / maxConcurrency) + 1}/${Math.ceil(files.length / maxConcurrency)}`
-    )
 
     const batchPromises = batch.map(async (fileInput) => {
       try {
@@ -161,43 +193,24 @@ export async function uploadMultipleStreamAssets(
     try {
       const batchResults = await Promise.all(batchPromises)
 
-      // Process successful uploads
       const successfulResults = batchResults
         .filter((r) => r.success)
         .map((r) => (r as any).result)
 
       results.push(...successfulResults)
 
-      // Log failed uploads
       const failedResults = batchResults.filter((r) => !r.success)
       if (failedResults.length > 0) {
-        console.error(
-          `Batch ${Math.floor(i / maxConcurrency) + 1} had ${failedResults.length} failures:`,
-          failedResults.map((r) => (r as any).filename)
-        )
       }
-    } catch (error) {
-      // Continue with next batch even if current batch fails
-      console.error(
-        `Batch ${Math.floor(i / maxConcurrency) + 1} failed:`,
-        error
-      )
-    }
+    } catch (error) {}
   }
 
   if (errors.length > 0) {
-    console.error(` Total upload errors: ${errors.length} files failed`)
   }
 
-  console.log(
-    `Batch processing complete. Success: ${results.length}, Errors: ${errors.length}`
-  )
   return results
 }
 
-/**
- * Sanitize filename for safe storage
- */
 function sanitizeFilename(name: string): string {
   if (!name || name.trim().length === 0) {
     return `unnamed-file-${Date.now()}`
@@ -205,15 +218,14 @@ function sanitizeFilename(name: string): string {
 
   return name
     .trim()
-    .replace(/[^\w.\-]/g, '_') // Replace special chars with underscore
-    .replace(/_{2,}/g, '_') // Replace multiple underscores with single
-    .replace(/^_+|_+$/g, '') // Remove leading/trailing underscores
-    .substring(0, 255) // Limit length
+    .replace(/[^\w.\-]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .substring(0, 255)
 }
 
 /**
  * Detect file type based on filename and MIME type
- * Returns FileType enum value
  */
 function detectFileType(filename: string, mimeType?: string): FileType {
   if (mimeType) {
@@ -242,7 +254,6 @@ function detectFileType(filename: string, mimeType?: string): FileType {
     if (mimeType.includes('model') || mimeType.includes('3d')) return '3d'
   }
 
-  // Fallback to filename extension
   const ext = filename.toLowerCase().split('.').pop()
   if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext || ''))
     return 'image'

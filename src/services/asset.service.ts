@@ -44,35 +44,25 @@ export const createAsset = async (
   fileBuffer?: Buffer
 ): Promise<Asset> => {
   try {
-    console.log('=== CREATE ASSET SERVICE START ===')
-    console.log('Input asset data:', assetData)
-    console.log('Asset data type:', typeof assetData)
-    console.log('Asset data keys:', Object.keys(assetData || {}))
-
     // Generate MinIO storage key
     const storageKey = `assets/${Date.now()}-${assetData.filename}`
 
     // Upload file to MinIO if buffer is provided
     if (fileBuffer) {
-      console.log('Uploading file to MinIO...')
       await uploadFile(storageKey, fileBuffer)
-      console.log('File uploaded to MinIO:', storageKey)
-
       // Update storage path to use MinIO key
       assetData.storage_path = storageKey
     }
 
-    console.log('Starting validation...')
+    // Validate asset data
     validateAssetData(assetData)
-    console.log('Asset data validation passed')
 
-    console.log('Building SQL query...')
+    // Build SQL query
     const query = `
       INSERT INTO assets (filename, original_name, file_type, mime_type, file_size, storage_path, storage_bucket, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `
-    console.log('SQL Query:', query)
 
     const values = [
       assetData.filename.trim(),
@@ -84,42 +74,18 @@ export const createAsset = async (
       assetData.storage_bucket || 'dam-media',
       JSON.stringify(assetData.metadata || {}),
     ]
-    console.log('Query values:', values)
-    console.log(
-      'Values types:',
-      values.map((v) => typeof v)
-    )
 
-    console.log('Executing database query...')
+    // Execute query
     const result = await pool.query(query, values)
-    console.log('Database query result:', result)
-    console.log('Result rows:', result.rows)
 
     if (!result.rows[0]) {
       throw new Error('Failed to create asset - no data returned')
     }
 
-    console.log(`Asset created successfully: ${result.rows[0].filename}`)
     return result.rows[0]
   } catch (error) {
-    console.error('=== CREATE ASSET SERVICE ERROR ===')
-    console.error('Error type:', typeof error)
-    console.error('Error constructor:', error?.constructor?.name)
-
-    // Use type guards to safely access error properties
-    if (error && typeof error === 'object' && 'message' in error) {
-      console.error('Error message:', (error as any).message)
-    }
-    if (error && typeof error === 'object' && 'stack' in error) {
-      console.error('Error stack:', (error as any).stack)
-    }
-    console.error('Full error object:', error)
-
-    // Re-throw with more context
-    if (error instanceof Error) {
-      throw new Error(`Asset creation failed: ${error.message}`)
-    }
-    throw new Error('Asset creation failed with unknown error')
+    console.error('Error creating asset:', error)
+    throw error
   }
 }
 
@@ -256,7 +222,7 @@ export const deleteAsset = async (id: number): Promise<boolean> => {
     // Delete file from MinIO
     try {
       await deleteFile(asset.storage_path)
-      console.log('File deleted from MinIO:', asset.storage_path)
+      // File deleted from MinIO
     } catch (minioError) {
       console.warn('Failed to delete file from MinIO:', minioError)
       // Continue with database deletion even if MinIO deletion fails
@@ -283,15 +249,6 @@ export const uploadAssetFile = async (
   metadata?: any
 ): Promise<Asset> => {
   try {
-    console.log('=== UPLOAD ASSET FILE START ===')
-    console.log('File info:', {
-      filename: file.filename,
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size,
-      buffer: file.buffer ? `Buffer(${file.buffer.length} bytes)` : 'No buffer',
-    })
-
     // Validate file for upload
     const validation = validateFileForUpload(
       file.originalname || 'unknown',
@@ -303,16 +260,12 @@ export const uploadAssetFile = async (
       throw new Error(`File validation failed: ${validation.errors.join(', ')}`)
     }
 
-    console.log('File validation passed:', validation)
-
     // Extract basic metadata
     const basicMetadata = extractBasicMetadata(
       file.originalname || 'unknown',
       file.mimetype || 'application/octet-stream',
       file.size
     )
-
-    console.log('Basic metadata extracted:', basicMetadata)
 
     const assetData: CreateAssetRequest = {
       filename: file.filename || file.originalname || 'unknown',
@@ -330,12 +283,9 @@ export const uploadAssetFile = async (
       },
     }
 
-    console.log('Asset data prepared:', assetData)
-
     return await createAsset(assetData, file.buffer)
   } catch (error) {
-    console.error('=== UPLOAD ASSET FILE ERROR ===')
-    console.error('Error:', error)
+    console.error('Error uploading asset file:', error)
     throw error
   }
 }

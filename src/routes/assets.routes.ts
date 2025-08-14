@@ -83,8 +83,6 @@ router.get('/:id/access', async (req, res) => {
 // Upload file and create asset
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
-    console.log('=== FILE UPLOAD REQUEST START ===')
-
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -92,20 +90,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       })
     }
 
-    console.log('File received:', {
-      filename: req.file.filename,
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size,
-    })
-
     // Extract metadata from request body
     const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {}
 
     // Upload file to MinIO and create asset
     const asset = await uploadAssetFile(req.file, metadata)
-
-    console.log('Asset created successfully:', asset)
 
     res.status(201).json({
       success: true,
@@ -113,8 +102,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       message: 'File uploaded and asset created successfully',
     })
   } catch (error) {
-    console.error('=== FILE UPLOAD ERROR ===')
-    console.error('Error:', error)
+    console.error('Error uploading file:', error)
 
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred'
@@ -129,18 +117,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 // Create new asset (without file upload)
 router.post('/', async (req, res) => {
   try {
-    console.log('=== ASSET CREATION REQUEST START ===')
-    console.log('Request headers:', req.headers)
-    console.log('Request body:', req.body)
-    console.log('Request body type:', typeof req.body)
-    console.log('Request body keys:', Object.keys(req.body || {}))
-
     const assetData: CreateAssetRequest = req.body
-    console.log('Parsed asset data:', assetData)
-    console.log('Asset data validation starting...')
-
     const asset = await createAsset(assetData)
-    console.log('Asset created successfully:', asset)
 
     res.status(201).json({
       success: true,
@@ -148,20 +126,8 @@ router.post('/', async (req, res) => {
       message: 'Asset created successfully',
     })
   } catch (error) {
-    console.error('=== ASSET CREATION ERROR ===')
-    console.error('Error type:', typeof error)
-    console.error('Error constructor:', error?.constructor?.name)
+    console.error('Error creating asset:', error)
 
-    // Use type guards to safely access error properties
-    if (error && typeof error === 'object' && 'message' in error) {
-      console.error('Error message:', (error as any).message)
-    }
-    if (error && typeof error === 'object' && 'stack' in error) {
-      console.error('Error stack:', (error as any).stack)
-    }
-    console.error('Full error object:', error)
-
-    // Return the actual error message for debugging
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred'
     res.status(400).json({

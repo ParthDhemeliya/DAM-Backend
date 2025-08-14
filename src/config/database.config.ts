@@ -36,19 +36,6 @@ pool.on('error', (err) => {
   process.exit(-1)
 })
 
-// Test database connection
-export const testConnection = async (): Promise<boolean> => {
-  try {
-    const client = await pool.connect()
-    console.log('Database connection successful!')
-    client.release()
-    return true
-  } catch (error) {
-    console.error('Database connection failed:', error)
-    return false
-  }
-}
-
 // Get the pool instance
 export const getPool = (): Pool => pool
 

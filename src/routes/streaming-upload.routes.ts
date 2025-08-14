@@ -9,21 +9,12 @@ import { asyncHandler } from '../middleware/asyncHandler'
 
 const router = Router()
 
-/**
- * Streaming multi-file upload endpoint
- * Handles multiple files in a single request with streaming to MinIO
- *
- * IMPORTANT: Don't use multer/json parser for this route
- * Send multipart/form-data with key "files"
- */
 router.post(
   '/upload',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // TODO: Replace with real authenticated user ID from middleware
       const userId = parseInt(req.headers['x-user-id'] as string) || 1
-
-      console.log('Starting streaming multi-file upload for user:', userId)
 
       // Configure Busboy for streaming file handling
       const bb = Busboy({
@@ -40,12 +31,10 @@ router.post(
       let fileCount = 0
       let totalSize = 0
 
-      // Handle each file as it arrives
+      // Handle each file as it arrives - accept any field name
       bb.on('file', (fieldname, file, info) => {
         const { filename, mimeType } = info
         fileCount++
-
-        console.log(`Processing file ${fileCount}: ${filename} (${mimeType})`)
 
         // Create stream input for the service
         const streamInput: StreamAssetInput = {
@@ -60,15 +49,10 @@ router.post(
           },
         }
 
-        // Hand off the Readable stream directly to service
-        // Service will stream to MinIO without buffering
         const uploadPromise = uploadStreamAsset(streamInput)
           .then((assetRecord) => {
             results.push(assetRecord)
             totalSize += assetRecord.size
-            console.log(
-              `File uploaded successfully: ${assetRecord.originalName} (${assetRecord.size} bytes)`
-            )
           })
           .catch((error) => {
             console.error(`File upload failed: ${filename}`, error)
@@ -85,9 +69,7 @@ router.post(
       })
 
       // Handle form fields (metadata)
-      bb.on('field', (fieldname, value) => {
-        console.log(`Form field: ${fieldname} = ${value}`)
-      })
+      bb.on('field', (fieldname, value) => {})
 
       // Handle errors
       bb.on('error', (err) => {
@@ -95,22 +77,13 @@ router.post(
         next(err)
       })
 
-      // When all files are processed
       bb.on('close', async () => {
         try {
-          console.log(
-            `Waiting for ${filePromises.length} file uploads to complete...`
-          )
-
           // Wait for all uploads + DB inserts to finish
           await Promise.all(filePromises)
 
           const successCount = results.filter((r) => !r.error).length
           const errorCount = results.filter((r) => r.error).length
-
-          console.log(
-            `Upload complete! Success: ${successCount}, Errors: ${errorCount}, Total size: ${totalSize} bytes`
-          )
 
           // Return comprehensive response
           res.json({
@@ -158,7 +131,6 @@ router.get('/health', (req: Request, res: Response) => {
 router.get(
   '/stats',
   asyncHandler(async (req: Request, res: Response) => {
-    // TODO: Implement upload statistics
     res.json({
       success: true,
       message: 'Upload statistics endpoint',

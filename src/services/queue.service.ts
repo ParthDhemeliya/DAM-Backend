@@ -22,8 +22,6 @@ export const addAssetProcessingJob = async (
   data: QueueJobData
 ) => {
   try {
-    console.log(`Adding ${jobType} job to queue for asset ${data.assetId}`)
-
     // Create job record in database
     const jobRecord = await createJob({
       job_type: jobType,
@@ -32,7 +30,6 @@ export const addAssetProcessingJob = async (
       priority: data.priority || 1,
     })
 
-    // Check if job was created successfully
     if (!jobRecord.id) {
       throw new Error('Failed to create job record - no ID returned')
     }
@@ -104,7 +101,7 @@ export const addAssetProcessingJob = async (
 
     const job = await queue.add(jobType, jobData, jobOptions)
 
-    console.log(` ${jobType} job added to queue with ID: ${job.id}`)
+    // Job added to queue
 
     return {
       jobId: job.id,
@@ -125,11 +122,6 @@ export const addAssetProcessingJobs = async (
   options?: any
 ) => {
   try {
-    console.log(
-      `Adding multiple processing jobs for asset ${assetId}:`,
-      jobTypes
-    )
-
     const jobs = []
 
     for (const jobType of jobTypes) {
@@ -140,8 +132,6 @@ export const addAssetProcessingJobs = async (
       })
       jobs.push(job)
     }
-
-    console.log(`Added ${jobs.length} processing jobs for asset ${assetId}`)
 
     return jobs
   } catch (error) {
@@ -198,8 +188,6 @@ export const pauseAllQueues = async () => {
       conversionQueue.pause(),
       cleanupQueue.pause(),
     ])
-
-    console.log('  All queues paused')
   } catch (error) {
     console.error('Failed to pause queues:', error)
     throw error
@@ -216,8 +204,6 @@ export const resumeAllQueues = async () => {
       conversionQueue.resume(),
       cleanupQueue.resume(),
     ])
-
-    console.log(' All queues resumed')
   } catch (error) {
     console.error(' Failed to resume queues:', error)
     throw error
@@ -234,8 +220,6 @@ export const clearAllQueues = async () => {
       conversionQueue.obliterate(),
       cleanupQueue.obliterate(),
     ])
-
-    console.log(' All queues cleared')
   } catch (error) {
     console.error('Failed to clear queues:', error)
     throw error

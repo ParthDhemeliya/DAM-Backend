@@ -13,7 +13,7 @@ const UPLOAD_ENDPOINT = `${API_BASE_URL}/api/streaming-upload/upload`
 async function testStreamingUpload() {
   try {
     console.log('Starting Streaming Upload Test...\n')
-    console.log(`API Endpoint: ${UPLOAD_ENDPUINT}`)
+    console.log(`API Endpoint: ${UPLOAD_ENDPOINT}`)
 
     // Create test files if they don't exist
     const testFiles = [

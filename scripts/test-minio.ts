@@ -47,7 +47,7 @@ async function testMinIO() {
     // 3. Get file metadata
     console.log('\nTesting metadata retrieval...')
     const metadata = await getFileMetadata(key)
-    console.log('✅ File metadata:', metadata)
+    console.log('File metadata:', metadata)
 
     // 4. Get signed URL
     console.log('\n Testing signed URL generation...')

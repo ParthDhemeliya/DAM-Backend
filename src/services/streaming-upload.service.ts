@@ -59,7 +59,7 @@ export async function uploadStreamAsset(
 
     // Handle upload completion
     countingStream.on('end', () => {
-      console.log(`📊 File ${filename} size calculated: ${totalSize} bytes`)
+      console.log(`File ${filename} size calculated: ${totalSize} bytes`)
     })
 
     // Start the upload process - uploadFile only takes 2 parameters

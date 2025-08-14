@@ -22,7 +22,7 @@ export const addAssetProcessingJob = async (
   data: QueueJobData
 ) => {
   try {
-    console.log(`📤 Adding ${jobType} job to queue for asset ${data.assetId}`)
+    console.log(`Adding ${jobType} job to queue for asset ${data.assetId}`)
 
     // Create job record in database
     const jobRecord = await createJob({
@@ -126,7 +126,7 @@ export const addAssetProcessingJobs = async (
 ) => {
   try {
     console.log(
-      `📤 Adding multiple processing jobs for asset ${assetId}:`,
+      `Adding multiple processing jobs for asset ${assetId}:`,
       jobTypes
     )
 
@@ -141,14 +141,11 @@ export const addAssetProcessingJobs = async (
       jobs.push(job)
     }
 
-    console.log(`✅ Added ${jobs.length} processing jobs for asset ${assetId}`)
+    console.log(`Added ${jobs.length} processing jobs for asset ${assetId}`)
 
     return jobs
   } catch (error) {
-    console.error(
-      `❌ Failed to add processing jobs for asset ${assetId}:`,
-      error
-    )
+    console.error(`Failed to add processing jobs for asset ${assetId}:`, error)
     throw error
   }
 }

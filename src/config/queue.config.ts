@@ -36,7 +36,7 @@ try {
   })
 
   redis.on('close', () => {
-    console.log('🔌 Redis connection closed')
+    console.log('Redis connection closed')
     isRedisConnected = false
   })
 } catch (error) {

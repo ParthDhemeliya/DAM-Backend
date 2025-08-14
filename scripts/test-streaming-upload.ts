@@ -12,8 +12,8 @@ const UPLOAD_ENDPOINT = `${API_BASE_URL}/api/streaming-upload/upload`
 
 async function testStreamingUpload() {
   try {
-    console.log('🚀 Starting Streaming Upload Test...\n')
-    console.log(`📡 API Endpoint: ${UPLOAD_ENDPOINT}`)
+    console.log('Starting Streaming Upload Test...\n')
+    console.log(`API Endpoint: ${UPLOAD_ENDPUINT}`)
 
     // Create test files if they don't exist
     const testFiles = [
@@ -27,19 +27,19 @@ async function testStreamingUpload() {
       },
     ]
 
-    console.log('📁 Creating test files...')
+    console.log('Creating test files...')
     for (const file of testFiles) {
       const filePath = path.join(__dirname, file.name)
       if (!fs.existsSync(filePath)) {
         fs.writeFileSync(filePath, file.content)
-        console.log(`✅ Created: ${file.name}`)
+        console.log(`Created: ${file.name}`)
       } else {
-        console.log(`ℹ️  Already exists: ${file.name}`)
+        console.log(`Already exists: ${file.name}`)
       }
     }
 
     // Create FormData with multiple files
-    console.log('\n📤 Preparing multi-file upload...')
+    console.log('\nPreparing multi-file upload...')
     const form = new FormData()
 
     for (const file of testFiles) {
@@ -58,8 +58,8 @@ async function testStreamingUpload() {
       })
     )
 
-    console.log(`📊 Uploading ${testFiles.length} files...`)
-    console.log('⏳ This may take a moment...\n')
+    console.log(`Uploading ${testFiles.length} files...`)
+    console.log('This may take a moment...\n')
 
     // Send the request
     const startTime = Date.now()
@@ -82,23 +82,23 @@ async function testStreamingUpload() {
 
     const result = await response.json()
 
-    console.log('🎉 Upload completed successfully!')
-    console.log(`⏱️  Total time: ${duration}ms`)
-    console.log(`📊 Response:`, JSON.stringify(result, null, 2))
+    console.log('Upload completed successfully!')
+    console.log(`Total time: ${duration}ms`)
+    console.log(`Response:`, JSON.stringify(result, null, 2))
 
     // Clean up test files
-    console.log('\n🧹 Cleaning up test files...')
+    console.log('\nCleaning up test files...')
     for (const file of testFiles) {
       const filePath = path.join(__dirname, file.name)
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath)
-        console.log(`🗑️  Deleted: ${file.name}`)
+        console.log(`Deleted: ${file.name}`)
       }
     }
 
-    console.log('\n✅ Streaming upload test completed successfully!')
+    console.log('\nStreaming upload test completed successfully!')
   } catch (error) {
-    console.error('❌ Streaming upload test failed:', error)
+    console.error('Streaming upload test failed:', error)
     process.exit(1)
   }
 }

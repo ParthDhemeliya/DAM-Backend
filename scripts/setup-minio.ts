@@ -13,15 +13,15 @@ const bucketName = process.env.MINIO_BUCKET || 'dam-media'
 
 async function setupMinIO() {
   try {
-    console.log('🚀 Setting up MinIO bucket and testing connection...\n')
+    console.log('Setting up MinIO bucket and testing connection...\n')
 
     // Test connection by listing buckets
-    console.log('🔍 Testing MinIO connection...')
+    console.log('Testing MinIO connection...')
     const { ListBucketsCommand } = await import('@aws-sdk/client-s3')
     const listResult = await s3.send(new ListBucketsCommand({}))
-    console.log('✅ MinIO connection successful!')
+    console.log('MinIO connection successful!')
     console.log(
-      '📦 Existing buckets:',
+              'Existing buckets:',
       listResult.Buckets?.map((b) => b.Name) || []
     )
 
@@ -29,12 +29,12 @@ async function setupMinIO() {
     const bucketExists = listResult.Buckets?.some((b) => b.Name === bucketName)
 
     if (bucketExists) {
-      console.log(`✅ Bucket '${bucketName}' already exists`)
+      console.log(`Bucket '${bucketName}' already exists`)
     } else {
       // Create bucket
-      console.log(`📦 Creating bucket '${bucketName}'...`)
+              console.log(`Creating bucket '${bucketName}'...`)
       await s3.send(new CreateBucketCommand({ Bucket: bucketName }))
-      console.log(`✅ Bucket '${bucketName}' created successfully`)
+              console.log(`Bucket '${bucketName}' created successfully`)
     }
 
     // Set bucket policy to allow public read (optional, for testing)

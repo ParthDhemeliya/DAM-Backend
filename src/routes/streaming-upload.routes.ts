@@ -23,7 +23,7 @@ router.post(
       // TODO: Replace with real authenticated user ID from middleware
       const userId = parseInt(req.headers['x-user-id'] as string) || 1
 
-      console.log('🚀 Starting streaming multi-file upload for user:', userId)
+      console.log('Starting streaming multi-file upload for user:', userId)
 
       // Configure Busboy for streaming file handling
       const bb = Busboy({
@@ -45,9 +45,7 @@ router.post(
         const { filename, mimeType } = info
         fileCount++
 
-        console.log(
-          `📁 Processing file ${fileCount}: ${filename} (${mimeType})`
-        )
+        console.log(`Processing file ${fileCount}: ${filename} (${mimeType})`)
 
         // Create stream input for the service
         const streamInput: StreamAssetInput = {
@@ -69,11 +67,11 @@ router.post(
             results.push(assetRecord)
             totalSize += assetRecord.size
             console.log(
-              `✅ File uploaded successfully: ${assetRecord.originalName} (${assetRecord.size} bytes)`
+              `File uploaded successfully: ${assetRecord.originalName} (${assetRecord.size} bytes)`
             )
           })
           .catch((error) => {
-            console.error(`❌ File upload failed: ${filename}`, error)
+            console.error(`File upload failed: ${filename}`, error)
             // Add error info to results
             results.push({
               error: true,
@@ -88,12 +86,12 @@ router.post(
 
       // Handle form fields (metadata)
       bb.on('field', (fieldname, value) => {
-        console.log(`📝 Form field: ${fieldname} = ${value}`)
+        console.log(`Form field: ${fieldname} = ${value}`)
       })
 
       // Handle errors
       bb.on('error', (err) => {
-        console.error('❌ Busboy error:', err)
+        console.error('Busboy error:', err)
         next(err)
       })
 
@@ -101,7 +99,7 @@ router.post(
       bb.on('close', async () => {
         try {
           console.log(
-            `🔄 Waiting for ${filePromises.length} file uploads to complete...`
+            `Waiting for ${filePromises.length} file uploads to complete...`
           )
 
           // Wait for all uploads + DB inserts to finish
@@ -111,7 +109,7 @@ router.post(
           const errorCount = results.filter((r) => r.error).length
 
           console.log(
-            `🎉 Upload complete! Success: ${successCount}, Errors: ${errorCount}, Total size: ${totalSize} bytes`
+            `Upload complete! Success: ${successCount}, Errors: ${errorCount}, Total size: ${totalSize} bytes`
           )
 
           // Return comprehensive response
@@ -128,7 +126,7 @@ router.post(
             files: results,
           })
         } catch (error) {
-          console.error('❌ Error during upload processing:', error)
+          console.error('Error during upload processing:', error)
           next(error)
         }
       })
@@ -136,7 +134,7 @@ router.post(
       // Pipe the request to Busboy for streaming processing
       req.pipe(bb)
     } catch (error) {
-      console.error('❌ Streaming upload route error:', error)
+      console.error('Streaming upload route error:', error)
       next(error)
     }
   }

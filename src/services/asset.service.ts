@@ -3,6 +3,7 @@ import {
   Asset,
   CreateAssetRequest,
   UpdateAssetRequest,
+  FileType,
 } from '../interfaces/asset.interface'
 import { getPool } from '../config/database.config'
 import {
@@ -10,6 +11,14 @@ import {
   validateNumber,
   validateInteger,
 } from '../middleware/validation'
+import { uploadFile, deleteFile, getSignedReadUrl, fileExists } from './storage'
+import { Readable } from 'stream'
+import {
+  detectFileType,
+  validateFileForUpload,
+  generateStoragePath,
+  extractBasicMetadata,
+} from '../utils/fileTypeUtils'
 
 // Shared database pool instance
 const pool: Pool = getPool()
@@ -29,15 +38,29 @@ const validateAssetId = (id: number): void => {
   validateInteger(id, 'id', 1)
 }
 
-// Create a new asset
+// Create a new asset with MinIO storage
 export const createAsset = async (
-  assetData: CreateAssetRequest
+  assetData: CreateAssetRequest,
+  fileBuffer?: Buffer
 ): Promise<Asset> => {
   try {
     console.log('=== CREATE ASSET SERVICE START ===')
     console.log('Input asset data:', assetData)
     console.log('Asset data type:', typeof assetData)
     console.log('Asset data keys:', Object.keys(assetData || {}))
+
+    // Generate MinIO storage key
+    const storageKey = `assets/${Date.now()}-${assetData.filename}`
+
+    // Upload file to MinIO if buffer is provided
+    if (fileBuffer) {
+      console.log('Uploading file to MinIO...')
+      await uploadFile(storageKey, fileBuffer)
+      console.log('File uploaded to MinIO:', storageKey)
+
+      // Update storage path to use MinIO key
+      assetData.storage_path = storageKey
+    }
 
     console.log('Starting validation...')
     validateAssetData(assetData)
@@ -58,7 +81,7 @@ export const createAsset = async (
       assetData.mime_type.trim(),
       assetData.file_size,
       assetData.storage_path.trim(),
-      assetData.storage_bucket || 'dam-assets',
+      assetData.storage_bucket || 'dam-media',
       JSON.stringify(assetData.metadata || {}),
     ]
     console.log('Query values:', values)
@@ -123,6 +146,28 @@ export const getAllAssets = async (): Promise<Asset[]> => {
     return result.rows
   } catch (error) {
     console.error('Error getting all assets:', error)
+    throw error
+  }
+}
+
+// Get asset with signed URL for access
+export const getAssetWithSignedUrl = async (
+  id: number,
+  expiresIn: number = 3600
+): Promise<(Asset & { signedUrl: string }) | null> => {
+  try {
+    const asset = await getAssetById(id)
+    if (!asset) return null
+
+    // Generate signed URL for MinIO access
+    const signedUrl = await getSignedReadUrl(asset.storage_path, expiresIn)
+
+    return {
+      ...asset,
+      signedUrl,
+    }
+  } catch (error) {
+    console.error('Error getting asset with signed URL:', error)
     throw error
   }
 }
@@ -197,11 +242,27 @@ export const updateAsset = async (
   }
 }
 
-// Delete asset (soft delete)
+// Delete asset (soft delete) and remove from MinIO
 export const deleteAsset = async (id: number): Promise<boolean> => {
   try {
     validateAssetId(id)
 
+    // Get asset to find storage path
+    const asset = await getAssetById(id)
+    if (!asset) {
+      throw new Error('Asset not found')
+    }
+
+    // Delete file from MinIO
+    try {
+      await deleteFile(asset.storage_path)
+      console.log('File deleted from MinIO:', asset.storage_path)
+    } catch (minioError) {
+      console.warn('Failed to delete file from MinIO:', minioError)
+      // Continue with database deletion even if MinIO deletion fails
+    }
+
+    // Soft delete from database
     const query = `
       UPDATE assets 
       SET deleted_at = $1, updated_at = $1
@@ -212,6 +273,69 @@ export const deleteAsset = async (id: number): Promise<boolean> => {
     return result.rowCount ? result.rowCount > 0 : false
   } catch (error) {
     console.error('Error deleting asset:', error)
+    throw error
+  }
+}
+
+// Upload file to MinIO and create asset
+export const uploadAssetFile = async (
+  file: Express.Multer.File,
+  metadata?: any
+): Promise<Asset> => {
+  try {
+    console.log('=== UPLOAD ASSET FILE START ===')
+    console.log('File info:', {
+      filename: file.filename,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+      buffer: file.buffer ? `Buffer(${file.buffer.length} bytes)` : 'No buffer',
+    })
+
+    // Validate file for upload
+    const validation = validateFileForUpload(
+      file.originalname || 'unknown',
+      file.mimetype || 'application/octet-stream',
+      file.size
+    )
+
+    if (!validation.isValid) {
+      throw new Error(`File validation failed: ${validation.errors.join(', ')}`)
+    }
+
+    console.log('File validation passed:', validation)
+
+    // Extract basic metadata
+    const basicMetadata = extractBasicMetadata(
+      file.originalname || 'unknown',
+      file.mimetype || 'application/octet-stream',
+      file.size
+    )
+
+    console.log('Basic metadata extracted:', basicMetadata)
+
+    const assetData: CreateAssetRequest = {
+      filename: file.filename || file.originalname || 'unknown',
+      original_name: file.originalname || 'unknown',
+      file_type: validation.fileType,
+      mime_type: file.mimetype || 'application/octet-stream',
+      file_size: file.size,
+      storage_path: '', // Will be set by createAsset
+      storage_bucket: 'dam-media',
+      metadata: {
+        ...basicMetadata,
+        ...metadata,
+        uploadMethod: 'api',
+        uploadTimestamp: new Date().toISOString(),
+      },
+    }
+
+    console.log('Asset data prepared:', assetData)
+
+    return await createAsset(assetData, file.buffer)
+  } catch (error) {
+    console.error('=== UPLOAD ASSET FILE ERROR ===')
+    console.error('Error:', error)
     throw error
   }
 }

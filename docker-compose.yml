@@ -10,22 +10,28 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - DB_HOST=dam-database
+      - DB_PORT=5432
+      - DB_NAME=dam_db
+      - DB_USER=dam_user
+      - DB_PASSWORD=dam_password
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_REGION=us-east-1
+      - MINIO_BUCKET=dam-media
+      - REDIS_HOST=dam-redis
+      - REDIS_PORT=6379
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
     networks:
       - dam-network
     deploy:
-      replicas: 2
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: start-first
       restart_policy:
         condition: on-failure
         delay: 5s
         max_attempts: 3
-        window: 120s
       resources:
         limits:
           cpus: '0.5'
@@ -84,6 +90,20 @@ services:
           cpus: '0.1'
           memory: 128M
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio_data:/data
+    networks:
+      - dam-network
+
   dam-nginx:
     image: nginx:alpine
     ports:
@@ -98,11 +118,6 @@ services:
     depends_on:
       - dam-backend
     deploy:
-      replicas: 2
-      update_config:
-        parallelism: 1
-        delay: 10s
-        order: start-first
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -119,6 +134,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  minio_data:
     driver: local
 
 networks:

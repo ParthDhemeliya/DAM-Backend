@@ -1,19 +1,33 @@
 import { Router } from 'express'
+import multer from 'multer'
 import {
   createAsset,
   getAssetById,
   getAllAssets,
   updateAsset,
   deleteAsset,
+  getAssetWithSignedUrl,
+  uploadAssetFile,
 } from '../services/asset.service'
 import {
   CreateAssetRequest,
   UpdateAssetRequest,
 } from '../interfaces/asset.interface'
 import { asyncHandler } from '../middleware/asyncHandler'
-import { IRequest } from 'minio/dist/main/internal/type'
 
 const router = Router()
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB default
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow all file types for now, you can add validation here
+    cb(null, true)
+  },
+})
 
 // Get all assets
 router.get(
@@ -24,7 +38,7 @@ router.get(
   })
 )
 
-//  Get asset by ID
+// Get asset by ID
 router.get('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id)
@@ -41,7 +55,78 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-// Create new asset
+// Get asset by ID with signed URL for direct access
+router.get('/:id/access', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600 // Default 1 hour
+
+    const asset = await getAssetWithSignedUrl(id, expiresIn)
+
+    if (!asset) {
+      return res.status(404).json({ success: false, error: 'Asset not found' })
+    }
+
+    res.json({
+      success: true,
+      data: asset,
+      message: 'Asset access URL generated successfully',
+    })
+  } catch (error) {
+    console.error('Error getting asset with signed URL:', error)
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to get asset access URL' })
+  }
+})
+
+// Upload file and create asset
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    console.log('=== FILE UPLOAD REQUEST START ===')
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file provided',
+      })
+    }
+
+    console.log('File received:', {
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+    })
+
+    // Extract metadata from request body
+    const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {}
+
+    // Upload file to MinIO and create asset
+    const asset = await uploadAssetFile(req.file, metadata)
+
+    console.log('Asset created successfully:', asset)
+
+    res.status(201).json({
+      success: true,
+      data: asset,
+      message: 'File uploaded and asset created successfully',
+    })
+  } catch (error) {
+    console.error('=== FILE UPLOAD ERROR ===')
+    console.error('Error:', error)
+
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    res.status(400).json({
+      success: false,
+      error: 'Failed to upload file',
+      details: errorMessage,
+    })
+  }
+})
+
+// Create new asset (without file upload)
 router.post('/', async (req, res) => {
   try {
     console.log('=== ASSET CREATION REQUEST START ===')

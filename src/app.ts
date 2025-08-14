@@ -6,6 +6,7 @@ import { testConnection } from './config/database.config'
 // Import routes
 import assetsRoutes from './routes/assets.routes'
 import jobsRoutes from './routes/jobs.routes'
+import queuesRoutes from './routes/queues.routes'
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler'
@@ -43,6 +44,8 @@ app.get('/', (req, res) => {
         create: 'POST /api/assets',
         update: 'PUT /api/assets/:id',
         delete: 'DELETE /api/assets/:id',
+        upload: 'POST /api/assets/upload',
+        access: 'GET /api/assets/:id/access',
       },
       jobs: {
         base: '/api/jobs',
@@ -52,6 +55,19 @@ app.get('/', (req, res) => {
         update: 'PUT /api/jobs/:id',
         delete: 'DELETE /api/jobs/:id',
       },
+      queues: {
+        base: '/api/queues',
+        stats: 'GET /api/queues/stats',
+        addJob: 'POST /api/queues/jobs',
+        addBatch: 'POST /api/queues/jobs/batch',
+        thumbnail: 'POST /api/queues/jobs/thumbnail',
+        metadata: 'POST /api/queues/jobs/metadata',
+        conversion: 'POST /api/queues/jobs/conversion',
+        cleanup: 'POST /api/queues/jobs/cleanup',
+        pause: 'POST /api/queues/pause',
+        resume: 'POST /api/queues/resume',
+        clear: 'DELETE /api/queues/clear?confirm=true',
+      },
     },
   })
 })
@@ -59,6 +75,7 @@ app.get('/', (req, res) => {
 // API Routes
 app.use('/api/assets', assetsRoutes)
 app.use('/api/jobs', jobsRoutes)
+app.use('/api/queues', queuesRoutes)
 
 // Database connection test endpoint
 app.get('/api/db/test', async (req, res) => {

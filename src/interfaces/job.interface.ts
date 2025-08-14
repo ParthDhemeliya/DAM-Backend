@@ -9,6 +9,8 @@ export interface Job {
   completed_at?: Date
   created_at?: Date
   updated_at?: Date
+  output_data?: any
+  error_message?: string
 }
 
 export interface CreateJobRequest {
@@ -25,4 +27,6 @@ export interface UpdateJobRequest {
   progress?: number
   started_at?: Date
   completed_at?: Date
+  output_data?: any
+  error_message?: string
 }

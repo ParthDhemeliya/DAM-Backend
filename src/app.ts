@@ -7,6 +7,7 @@ import { testConnection } from './config/database.config'
 import assetsRoutes from './routes/assets.routes'
 import jobsRoutes from './routes/jobs.routes'
 import queuesRoutes from './routes/queues.routes'
+import streamingUploadRoutes from './routes/streaming-upload.routes'
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler'
@@ -68,6 +69,12 @@ app.get('/', (req, res) => {
         resume: 'POST /api/queues/resume',
         clear: 'DELETE /api/queues/clear?confirm=true',
       },
+      streamingUpload: {
+        base: '/api/streaming-upload',
+        upload: 'POST /api/streaming-upload/upload',
+        health: 'GET /api/streaming-upload/health',
+        stats: 'GET /api/streaming-upload/stats',
+      },
     },
   })
 })
@@ -76,6 +83,7 @@ app.get('/', (req, res) => {
 app.use('/api/assets', assetsRoutes)
 app.use('/api/jobs', jobsRoutes)
 app.use('/api/queues', queuesRoutes)
+app.use('/api/streaming-upload', streamingUploadRoutes)
 
 // Database connection test endpoint
 app.get('/api/db/test', async (req, res) => {

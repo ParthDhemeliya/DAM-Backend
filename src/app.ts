@@ -1,13 +1,11 @@
 import express from 'express'
 import dotenv from 'dotenv'
-import cors from 'cors'
-import { testConnection } from './config/database.config'
+import cors from 'express'
 
 // Import routes
 import assetsRoutes from './routes/assets.routes'
 import jobsRoutes from './routes/jobs.routes'
 import queuesRoutes from './routes/queues.routes'
-import streamingUploadRoutes from './routes/streaming-upload.routes'
 import videoRoutes from './routes/video.routes'
 
 // Import and start job workers
@@ -23,27 +21,8 @@ const PORT = process.env.PORT || 3000
 
 // Middleware
 app.use(cors())
-
-// Skip JSON/URL-encoded parsing for streaming upload route
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/streaming-upload')) {
-    // Skip JSON/URL-encoded parsing for streaming routes
-    return next()
-  }
-
-  // Apply JSON/URL-encoded parsing for other routes
-  express.json({ limit: '10mb' })(req, res, next)
-})
-
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/streaming-upload')) {
-    // Skip URL-encoded parsing for streaming routes
-    return next()
-  }
-
-  // Apply URL-encoded parsing for other routes
-  express.urlencoded({ extended: true, limit: '10mb' })(req, res, next)
-})
+app.use(express.json({ limit: '10mb' }))
+app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -91,12 +70,6 @@ app.get('/', (req, res) => {
         resume: 'POST /api/queues/resume',
         clear: 'DELETE /api/queues/clear?confirm=true',
       },
-      streamingUpload: {
-        base: '/api/streaming-upload',
-        upload: 'POST /api/streaming-upload/upload',
-        health: 'GET /api/streaming-upload/health',
-        stats: 'GET /api/streaming-upload/stats',
-      },
       video: {
         base: '/api/video',
         process: 'POST /api/video/process',
@@ -116,92 +89,6 @@ app.use('/api/assets', assetsRoutes)
 app.use('/api/jobs', jobsRoutes)
 app.use('/api/queues', queuesRoutes)
 app.use('/api/video', videoRoutes)
-
-// Streaming upload route (uses Busboy, bypasses JSON/URL-encoded middleware)
-app.use('/api/streaming-upload', streamingUploadRoutes)
-
-// Database connection test endpoint
-app.get('/api/db/test', async (req, res) => {
-  try {
-    const isConnected = await testConnection()
-    if (isConnected) {
-      res.json({
-        success: true,
-        message: 'Database connection successful',
-        timestamp: new Date().toISOString(),
-      })
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'Database connection failed',
-        timestamp: new Date().toISOString(),
-      })
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Database connection error',
-      error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString(),
-    })
-  }
-})
-
-// Debug endpoint to check table structure
-app.get('/api/db/debug', async (req, res) => {
-  try {
-    const pool = require('./config/database.config').default
-    const result = await pool.query(`
-      SELECT column_name, data_type, is_nullable, column_default
-      FROM information_schema.columns 
-      WHERE table_name = 'assets' 
-      ORDER BY ordinal_position
-    `)
-
-    res.json({
-      success: true,
-      tableStructure: result.rows,
-      timestamp: new Date().toISOString(),
-    })
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get table structure',
-      error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString(),
-    })
-  }
-})
-
-// Debug endpoint to check jobs table structure
-app.get('/api/db/debug/jobs', async (req, res) => {
-  try {
-    const pool = require('./config/database.config').default
-    const result = await pool.query(`
-      SELECT column_name, data_type, is_nullable, column_default
-      FROM information_schema.columns 
-      WHERE table_name = 'jobs' 
-      ORDER BY ordinal_position
-    `)
-
-    // Also get a sample row to see the actual data structure
-    const sampleResult = await pool.query('SELECT * FROM jobs LIMIT 1')
-
-    res.json({
-      success: true,
-      tableStructure: result.rows,
-      sampleData: sampleResult.rows[0] || null,
-      timestamp: new Date().toISOString(),
-    })
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get jobs table structure',
-      error: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString(),
-    })
-  }
-})
 
 // Error handling middleware
 app.use(errorHandler)

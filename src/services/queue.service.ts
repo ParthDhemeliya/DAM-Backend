@@ -33,7 +33,7 @@ export const addAssetProcessingJob = async (
   data: QueueJobData
 ) => {
   try {
-    console.log(`📤 Adding ${jobType} job to queue for asset ${data.assetId}`)
+    console.log(`Adding ${jobType} job to queue for asset ${data.assetId}`)
 
     // Create job record in database
     const jobRecord = await createJob({
@@ -113,16 +113,12 @@ export const addAssetProcessingJob = async (
       jobOptions.delay = data.delay
     }
 
-    const job = await queue.add(
-      jobType,
-      jobData,
-      jobOptions
-    )
+    const job = await queue.add(jobType, jobData, jobOptions)
 
-    console.log(`✅ ${jobType} job added to queue with ID: ${job.id}`)
+    console.log(`${jobType} job added to queue with ID: ${job.id}`)
     return job
   } catch (error) {
-    console.error(`❌ Failed to add ${jobType} job:`, error)
+    console.error(`Failed to add ${jobType} job:`, error)
     throw error
   }
 }
@@ -130,7 +126,9 @@ export const addAssetProcessingJob = async (
 // Add video processing job
 export const addVideoJob = async (data: VideoJobData) => {
   try {
-    console.log(`📤 Adding video ${data.operation} job to queue for asset ${data.assetId}`)
+    console.log(
+      `Adding video ${data.operation} job to queue for asset ${data.assetId}`
+    )
 
     // Create job record in database
     const jobRecord = await createJob({
@@ -138,7 +136,6 @@ export const addVideoJob = async (data: VideoJobData) => {
       asset_id: data.assetId,
       status: 'pending',
       priority: data.priority || 1,
-      input_data: data.options || {}
     })
 
     // Check if job was created successfully
@@ -169,10 +166,10 @@ export const addVideoJob = async (data: VideoJobData) => {
       jobOptions
     )
 
-    console.log(`✅ Video ${data.operation} job added to queue with ID: ${job.id}`)
+    console.log(`Video ${data.operation} job added to queue with ID: ${job.id}`)
     return job
   } catch (error) {
-    console.error(`❌ Failed to add video ${data.operation} job:`, error)
+    console.error(`Failed to add video ${data.operation} job:`, error)
     throw error
   }
 }
@@ -185,7 +182,7 @@ export const addAssetProcessingJobs = async (
 ) => {
   try {
     console.log(
-      `📤 Adding multiple processing jobs for asset ${assetId}:`,
+      `Adding multiple processing jobs for asset ${assetId}:`,
       jobTypes
     )
 
@@ -200,14 +197,11 @@ export const addAssetProcessingJobs = async (
       jobs.push(job)
     }
 
-    console.log(`✅ Added ${jobs.length} processing jobs for asset ${assetId}`)
+    console.log(`Added ${jobs.length} processing jobs for asset ${assetId}`)
 
     return jobs
   } catch (error) {
-    console.error(
-      `❌ Failed to add processing jobs for asset ${assetId}:`,
-      error
-    )
+    console.error(`Failed to add processing jobs for asset ${assetId}:`, error)
     throw error
   }
 }
@@ -244,7 +238,7 @@ export const getVideoJobsByAsset = async (
     // For now, return empty array
     return []
   } catch (error) {
-    console.error(`❌ Failed to get video jobs for asset ${assetId}:`, error)
+    console.error(`Failed to get video jobs for asset ${assetId}:`, error)
     throw error
   }
 }

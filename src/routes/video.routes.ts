@@ -1,22 +1,28 @@
-import express from 'express'
-import { QueueService } from '../services/queue.service'
+import express, { Request, Response } from 'express'
+import { addVideoJob, getVideoJobsByAsset } from '../services/queue.service'
 import videoService from '../services/video.service'
 import { asyncHandler } from '../middleware/asyncHandler'
-import { validateRequest } from '../middleware/validation'
 
 const router = express.Router()
-const queueService = new QueueService()
+
+// Helper function to validate required fields
+const validateRequired = (body: any, fields: string[]): void => {
+  for (const field of fields) {
+    if (!body[field]) {
+      throw new Error(`${field} is required`)
+    }
+  }
+}
 
 /**
- * @route POST /api/video/process
- * @desc Process video with specified operations
+ * Process video with specified operations
  */
 router.post('/process', 
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { assetId, operation, options } = req.body
 
     // Validate required fields
-    validateRequest(req.body, ['assetId', 'operation'])
+    validateRequired(req.body, ['assetId', 'operation'])
 
     // Validate operation
     const validOperations = ['transcode', 'thumbnail', 'metadata', 'all']
@@ -28,7 +34,7 @@ router.post('/process',
     }
 
     // Add job to video processing queue
-    const job = await queueService.addVideoJob({
+    const job = await addVideoJob({
       assetId,
       operation,
       options: options || {}
@@ -49,15 +55,14 @@ router.post('/process',
 )
 
 /**
- * @route POST /api/video/transcode
- * @desc Transcode video to different resolutions
+ * Transcode video to different resolutions
  */
 router.post('/transcode',
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { assetId, resolutions, quality, format } = req.body
 
     // Validate required fields
-    validateRequest(req.body, ['assetId'])
+    validateRequired(req.body, ['assetId'])
 
     // Validate resolutions
     const validResolutions = ['1080p', '720p', '480p']
@@ -73,7 +78,7 @@ router.post('/transcode',
     }
 
     // Add transcoding job
-    const job = await queueService.addVideoJob({
+    const job = await addVideoJob({
       assetId,
       operation: 'transcode',
       options: {
@@ -100,15 +105,14 @@ router.post('/transcode',
 )
 
 /**
- * @route POST /api/video/thumbnail
- * @desc Generate thumbnail from video
+ * Generate thumbnail from video
  */
 router.post('/thumbnail',
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { assetId, time } = req.body
 
     // Validate required fields
-    validateRequest(req.body, ['assetId'])
+    validateRequired(req.body, ['assetId'])
 
     // Validate time format (HH:MM:SS)
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/
@@ -120,7 +124,7 @@ router.post('/thumbnail',
     }
 
     // Add thumbnail generation job
-    const job = await queueService.addVideoJob({
+    const job = await addVideoJob({
       assetId,
       operation: 'thumbnail',
       options: {
@@ -143,18 +147,17 @@ router.post('/thumbnail',
 )
 
 /**
- * @route POST /api/video/metadata
- * @desc Extract metadata from video
+ * Extract metadata from video
  */
 router.post('/metadata',
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.body
 
     // Validate required fields
-    validateRequest(req.body, ['assetId'])
+    validateRequired(req.body, ['assetId'])
 
     // Add metadata extraction job
-    const job = await queueService.addVideoJob({
+    const job = await addVideoJob({
       assetId,
       operation: 'metadata'
     })
@@ -173,11 +176,10 @@ router.post('/metadata',
 )
 
 /**
- * @route GET /api/video/supported-formats
- * @desc Get supported video formats
+ * Get supported video formats
  */
 router.get('/supported-formats',
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const formats = videoService.getSupportedFormats()
     const resolutions = videoService.getSupportedResolutions()
 
@@ -193,11 +195,10 @@ router.get('/supported-formats',
 )
 
 /**
- * @route GET /api/video/health
- * @desc Check video processing service health
+ * Check video processing service health
  */
 router.get('/health',
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const ffmpegAvailable = await videoService.checkFFmpegAvailability()
     
     res.json({
@@ -213,15 +214,14 @@ router.get('/health',
 )
 
 /**
- * @route GET /api/video/jobs/:assetId
- * @desc Get video processing jobs for an asset
+ * Get video processing jobs for an asset
  */
 router.get('/jobs/:assetId',
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.params
     const { status, limit = 10, offset = 0 } = req.query
 
-    const jobs = await queueService.getVideoJobsByAsset(
+    const jobs = await getVideoJobsByAsset(
       parseInt(assetId),
       status as string,
       parseInt(limit as string),

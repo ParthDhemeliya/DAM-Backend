@@ -16,6 +16,17 @@ export interface QueueJobData {
   delay?: number
 }
 
+// Video job data interface
+export interface VideoJobData extends QueueJobData {
+  operation: 'transcode' | 'thumbnail' | 'metadata' | 'all'
+  options?: {
+    resolution?: '1080p' | '720p' | '480p'
+    format?: 'mp4' | 'webm' | 'mov'
+    quality?: 'high' | 'medium' | 'low'
+    thumbnailTime?: string
+  }
+}
+
 // Add asset processing job
 export const addAssetProcessingJob = async (
   jobType: 'thumbnail' | 'metadata' | 'conversion' | 'cleanup',
@@ -102,18 +113,66 @@ export const addAssetProcessingJob = async (
       jobOptions.delay = data.delay
     }
 
-    const job = await queue.add(jobType, jobData, jobOptions)
+    const job = await queue.add(
+      jobType,
+      jobData,
+      jobOptions
+    )
 
-    console.log(` ${jobType} job added to queue with ID: ${job.id}`)
-
-    return {
-      jobId: job.id,
-      dbJobId: jobRecord.id,
-      status: 'queued',
-      queue: jobType,
-    }
+    console.log(`✅ ${jobType} job added to queue with ID: ${job.id}`)
+    return job
   } catch (error) {
-    console.error(` Failed to add ${jobType} job to queue:`, error)
+    console.error(`❌ Failed to add ${jobType} job:`, error)
+    throw error
+  }
+}
+
+// Add video processing job
+export const addVideoJob = async (data: VideoJobData) => {
+  try {
+    console.log(`📤 Adding video ${data.operation} job to queue for asset ${data.assetId}`)
+
+    // Create job record in database
+    const jobRecord = await createJob({
+      job_type: `video_${data.operation}`,
+      asset_id: data.assetId,
+      status: 'pending',
+      priority: data.priority || 1,
+      input_data: data.options || {}
+    })
+
+    // Check if job was created successfully
+    if (!jobRecord.id) {
+      throw new Error('Failed to create video job record - no ID returned')
+    }
+
+    // Add job to video processing queue (using conversion queue for now)
+    const jobOptions: any = {
+      jobId: `video_${jobRecord.id}`,
+      priority: data.priority || 1,
+      removeOnComplete: 100,
+      removeOnFail: 50,
+    }
+
+    if (data.delay) {
+      jobOptions.delay = data.delay
+    }
+
+    const job = await conversionQueue.add(
+      `video_${data.operation}`,
+      {
+        assetId: data.assetId,
+        operation: data.operation,
+        options: data.options || {},
+        jobId: jobRecord.id,
+      },
+      jobOptions
+    )
+
+    console.log(`✅ Video ${data.operation} job added to queue with ID: ${job.id}`)
+    return job
+  } catch (error) {
+    console.error(`❌ Failed to add video ${data.operation} job:`, error)
     throw error
   }
 }
@@ -171,6 +230,23 @@ export const addConversionJob = async (data: QueueJobData) => {
 // Add cleanup job
 export const addCleanupJob = async (data: QueueJobData) => {
   return addAssetProcessingJob('cleanup', data)
+}
+
+// Get video jobs by asset
+export const getVideoJobsByAsset = async (
+  assetId: number,
+  status?: string,
+  limit: number = 10,
+  offset: number = 0
+) => {
+  try {
+    // This would need to be implemented in the job service
+    // For now, return empty array
+    return []
+  } catch (error) {
+    console.error(`❌ Failed to get video jobs for asset ${assetId}:`, error)
+    throw error
+  }
 }
 
 // Get queue statistics

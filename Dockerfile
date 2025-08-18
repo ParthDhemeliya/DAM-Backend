@@ -4,8 +4,8 @@ FROM node:18-alpine
 # Set working directory
 WORKDIR /app
 
-# Install dependencies for native modules
-RUN apk add --no-cache python3 make g++
+# Install dependencies for native modules and FFmpeg
+RUN apk add --no-cache python3 make g++ ffmpeg
 
 # Copy package files
 COPY package*.json ./

@@ -11,7 +11,6 @@ export const validateJobType = (jobType: string): void => {
     'metadata',
     'conversion',
     'video_metadata',
-    'video_thumbnail',
     'video_transcode',
     'audio_metadata',
     'audio_conversion',

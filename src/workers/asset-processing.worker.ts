@@ -11,6 +11,7 @@ import { downloadFile, uploadFile } from '../services/storage'
 import { createJob, updateJob } from '../services/job.service'
 import sharp from 'sharp'
 import path from 'path'
+import fs from 'fs'
 
 // Job types
 export interface AssetProcessingJobData {
@@ -410,9 +411,87 @@ async function processConversion(asset: any, options: any) {
       }
     }
 
-    // Handle video conversion (would need FFmpeg integration)
+    // Handle video conversion using FFmpeg
     if (asset.file_type === 'video') {
-      result.video_conversion = 'FFmpeg integration needed for video conversion'
+      console.log(`Processing video transcode for ${asset.filename}`)
+
+      try {
+        // Import video service
+        const videoService = await import('../services/video.service')
+        const defaultVideoService = videoService.default
+
+        // Check if FFmpeg is available
+        const ffmpegAvailable =
+          await defaultVideoService.checkFFmpegAvailability()
+        if (!ffmpegAvailable) {
+          throw new Error('FFmpeg not available for video processing')
+        }
+
+        // Create temporary input file path
+        const tempInputPath = `/tmp/input_${asset.id}_${Date.now()}.mp4`
+        fs.writeFileSync(tempInputPath, fileBuffer)
+
+        // Process video transcode for each resolution
+        const resolutions = options?.resolutions || ['1080p', '720p']
+        const transcodeResults = []
+
+        for (const resolution of resolutions) {
+          const outputFileName = `${asset.id}_${resolution}_${Date.now()}.mp4`
+          const tempOutputPath = `/tmp/${outputFileName}`
+          const minioOutputPath = `transcoded/${asset.id}/${outputFileName}`
+
+          console.log(`Transcoding ${asset.filename} to ${resolution}`)
+
+          // Transcode video
+          const transcodeResult = await defaultVideoService.transcodeVideo({
+            inputPath: tempInputPath,
+            outputPath: tempOutputPath,
+            resolution: resolution as '1080p' | '720p',
+            quality: 'medium',
+            format: 'mp4',
+          })
+
+          if (transcodeResult.success) {
+            // Read transcoded file and upload to MinIO
+            const transcodedBuffer = fs.readFileSync(tempOutputPath)
+            await uploadFile(minioOutputPath, transcodedBuffer)
+
+            // Clean up temp file
+            fs.unlinkSync(tempOutputPath)
+
+            transcodeResults.push({
+              resolution,
+              output_path: minioOutputPath,
+              file_size: transcodedBuffer.length,
+              processing_time: transcodeResult.processingTime,
+            })
+
+            console.log(
+              `Successfully transcoded to ${resolution}: ${minioOutputPath}`
+            )
+          } else {
+            console.error(
+              `Failed to transcode to ${resolution}:`,
+              transcodeResult.error
+            )
+          }
+        }
+
+        // Clean up input temp file
+        fs.unlinkSync(tempInputPath)
+
+        result.video_transcode = {
+          success: true,
+          resolutions: transcodeResults,
+          total_files: transcodeResults.length,
+        }
+      } catch (error) {
+        console.error(`Video transcode failed for ${asset.filename}:`, error)
+        result.video_transcode = {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }
+      }
     }
 
     return result

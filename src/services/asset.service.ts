@@ -564,20 +564,6 @@ async function queueAutoProcessingJobs(asset: Asset) {
         },
       })
 
-      // Queue video thumbnail generation
-      const videoThumbnailJob = await createJob({
-        job_type: 'video_thumbnail',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 3,
-        input_data: {
-          autoQueued: true,
-          reason: 'upload',
-          operation: 'thumbnail',
-          thumbnailTime: '00:00:01',
-        },
-      })
-
       // Queue video transcoding to multiple resolutions
       const videoTranscodeJob = await createJob({
         job_type: 'video_transcode',
@@ -613,20 +599,6 @@ async function queueAutoProcessingJobs(asset: Asset) {
         'file-conversion',
         {
           assetId: asset.id!,
-          operation: 'thumbnail',
-          options: { autoQueued: true, thumbnailTime: '00:00:01' },
-          jobId: videoThumbnailJob.id,
-        },
-        {
-          jobId: `video_thumb_${videoThumbnailJob.id}`,
-          priority: 3,
-        }
-      )
-
-      await conversionQueue.add(
-        'file-conversion',
-        {
-          assetId: asset.id!,
           operation: 'transcode',
           options: { autoQueued: true, resolutions: ['1080p', '720p'] },
           jobId: videoTranscodeJob.id,
@@ -639,7 +611,6 @@ async function queueAutoProcessingJobs(asset: Asset) {
 
       jobs.push(
         { id: videoMetadataJob.id, type: 'video_metadata', status: 'queued' },
-        { id: videoThumbnailJob.id, type: 'video_thumbnail', status: 'queued' },
         { id: videoTranscodeJob.id, type: 'video_transcode', status: 'queued' }
       )
     }

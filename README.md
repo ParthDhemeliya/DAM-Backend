@@ -66,21 +66,18 @@ When uploading files, you can specify how to handle duplicates using the `duplic
 
 ### API Endpoints
 
-#### Upload with Duplicate Handling
+#### Core Asset Management
 
 ```
-POST /api/assets/upload
+GET    /api/assets              - List all assets
+GET    /api/assets/:id          - Get asset by ID
+POST   /api/assets/upload       - Upload files with duplicate detection
+PUT    /api/assets/:id          - Update asset
+DELETE /api/assets/:id          - Delete asset
+GET    /api/assets/:id/access   - Get asset with signed URL
 ```
 
-**Form Data:**
-
-- `file`: File to upload
-- `duplicateAction`: How to handle duplicates
-- `replaceAssetId`: Asset ID to replace (if replace action)
-- `category`: Optional category
-- `description`: Optional description
-
-#### Check for Duplicates
+#### Duplicate Detection
 
 ```
 POST /api/assets/check-duplicates-simple
@@ -94,6 +91,16 @@ POST /api/assets/check-duplicates-simple
   "fileSize": 1024000,
   "contentHash": "sha256_hash_here"
 }
+```
+
+#### Job Processing (via Queues)
+
+```
+POST /api/queues/jobs           - Add single processing job
+POST /api/queues/jobs/batch     - Add multiple processing jobs
+POST /api/queues/jobs/thumbnail - Generate thumbnail
+POST /api/queues/jobs/metadata  - Extract metadata
+POST /api/queues/jobs/conversion - Convert file format
 ```
 
 ### Example Usage

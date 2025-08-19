@@ -95,7 +95,34 @@ import {
 } from './workers/asset-processing.worker'
 
 try {
-  // Workers are automatically started when imported
+  // Start all workers
+  console.log('Starting background workers...')
+
+  // Start thumbnail worker
+  if (!thumbnailWorker.isRunning()) {
+    thumbnailWorker.run()
+    console.log('✅ Thumbnail worker started')
+  } else {
+    console.log('ℹ️ Thumbnail worker already running')
+  }
+
+  // Start metadata worker
+  if (!metadataWorker.isRunning()) {
+    metadataWorker.run()
+    console.log('✅ Metadata worker started')
+  } else {
+    console.log('ℹ️ Metadata worker already running')
+  }
+
+  // Start conversion worker
+  if (!conversionWorker.isRunning()) {
+    conversionWorker.run()
+    console.log('✅ Conversion worker started')
+  } else {
+    console.log('ℹ️ Conversion worker already running')
+  }
+
+  console.log('All background workers started successfully!')
 } catch (error) {
   console.error('Failed to start workers:', error)
 }

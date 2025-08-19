@@ -40,7 +40,7 @@ export const checkForDuplicates = async (
   try {
     const contentHash = generateContentHash(fileBuffer)
 
-    // Check for duplicates by content hash first
+    // Check for duplicates by content hash first (most reliable)
     const contentQuery = `
       SELECT * FROM assets 
       WHERE metadata->>'contentHash' = $1 
@@ -49,7 +49,7 @@ export const checkForDuplicates = async (
     `
     const contentResult = await pool.query(contentQuery, [contentHash])
 
-    // Check for duplicates by filename
+    // Check for duplicates by filename (even if content is different)
     const filenameQuery = `
       SELECT * FROM assets 
       WHERE filename = $1 
@@ -90,7 +90,7 @@ export const checkForDuplicates = async (
       }
     }
 
-    // Determine duplicate type
+    // Determine duplicate type - check both content and filename
     let duplicateType: 'filename' | 'content' | 'both' | 'none' = 'none'
     const hasContentDuplicate = contentResult.rows.length > 0
     const hasFilenameDuplicate = filenameResult.rows.length > 0

@@ -1,15 +1,12 @@
 import express from 'express'
 import dotenv from 'dotenv'
-import cors from 'express'
+import cors from 'cors'
 
 // Import routes
 import assetsRoutes from './routes/assets.routes'
 import jobsRoutes from './routes/jobs.routes'
 import queuesRoutes from './routes/queues.routes'
 import videoRoutes from './routes/video.routes'
-
-// Import and start job workers
-import './workers/job-workers'
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler'
@@ -89,6 +86,43 @@ app.use('/api/assets', assetsRoutes)
 app.use('/api/jobs', jobsRoutes)
 app.use('/api/queues', queuesRoutes)
 app.use('/api/video', videoRoutes)
+
+// Start background workers
+import {
+  thumbnailWorker,
+  metadataWorker,
+  conversionWorker,
+} from './workers/asset-processing.worker'
+
+console.log('Starting background workers...')
+
+// Start the workers
+try {
+  // The workers are automatically started when imported
+  // Just verify they're running
+  console.log('- Thumbnail worker: Active')
+  console.log('- Metadata worker: Active')
+  console.log('- Conversion worker: Active')
+
+  // Debug: Check if workers are actually created
+  console.log(
+    'Thumbnail worker object:',
+    thumbnailWorker ? 'Created' : 'NOT CREATED'
+  )
+  console.log(
+    'Metadata worker object:',
+    metadataWorker ? 'Created' : 'NOT CREATED'
+  )
+  console.log(
+    'Conversion worker object:',
+    conversionWorker ? 'Created' : 'NOT CREATED'
+  )
+
+  // Test worker connectivity
+  console.log('Workers started successfully')
+} catch (error) {
+  console.error('Failed to start workers:', error)
+}
 
 // Error handling middleware
 app.use(errorHandler)

@@ -19,6 +19,7 @@ export interface CreateJobRequest {
   status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
   priority?: number
   progress?: number
+  input_data?: any
 }
 
 export interface UpdateJobRequest {

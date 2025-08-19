@@ -60,15 +60,15 @@ CREATE TRIGGER update_jobs_updated_at
     BEFORE UPDATE ON jobs 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Insert some sample data for testing
-INSERT INTO assets (filename, original_name, file_type, mime_type, file_size, storage_path, status) VALUES
-('sample_image_1.jpg', 'sample_image_1.jpg', 'image', 'image/jpeg', 1024000, '/uploads/sample_image_1.jpg', 'uploaded'),
-('sample_document.pdf', 'sample_document.pdf', 'document', 'application/pdf', 2048000, '/uploads/sample_document.pdf', 'uploaded'),
-('sample_video.mp4', 'sample_video.mp4', 'video', 'video/mp4', 10485760, '/uploads/sample_video.mp4', 'uploaded')
-ON CONFLICT DO NOTHING;
+-- Sample data removed for clean startup
+-- INSERT INTO assets (filename, original_name, file_type, mime_type, file_size, storage_path, status) VALUES
+-- ('sample_image_1.jpg', 'sample_image_1.jpg', 'image', 'image/jpeg', 1024000, '/uploads/sample_image_1.jpg', 'uploaded'),
+-- ('sample_document.pdf', 'sample_document.pdf', 'document', 'application/pdf', 2048000, '/uploads/sample_document.pdf', 'uploaded'),
+-- ('sample_video.mp4', 'sample_video.mp4', 'video', 'video/mp4', 10485760, '/uploads/sample_video.mp4', 'uploaded')
+-- ON CONFLICT DO NOTHING;
 
-INSERT INTO jobs (job_type, asset_id, status, priority) VALUES
-('generate_thumbnail', 1, 'pending', 1),
-('extract_metadata', 2, 'pending', 2),
-('generate_preview', 3, 'pending', 1)
-ON CONFLICT DO NOTHING;
+-- INSERT INTO jobs (job_type, asset_id, status, priority) VALUES
+-- ('generate_thumbnail', 1, 'pending', 1),
+-- ('extract_metadata', 2, 'pending', 2),
+-- ('generate_preview', 3, 'pending', 1)
+-- ON CONFLICT DO NOTHING;

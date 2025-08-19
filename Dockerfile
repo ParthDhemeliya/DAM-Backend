@@ -5,13 +5,13 @@ FROM node:18-alpine
 WORKDIR /app
 
 # Install dependencies for native modules and FFmpeg
-RUN apk add --no-cache python3 make g++ ffmpeg
+RUN apk add --no-cache python3 make g++ ffmpeg libc6-compat
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm ci --only=production && npm rebuild sharp || true
 
 # Copy source code
 COPY . .

@@ -13,6 +13,36 @@ import sharp from 'sharp'
 import path from 'path'
 import fs from 'fs'
 
+// Helper function to format file size
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+// Helper function to detect if file is binary
+function isBinaryFile(buffer: Buffer): boolean {
+  const sampleSize = Math.min(buffer.length, 512)
+  const sample = buffer.slice(0, sampleSize)
+
+  // Check for null bytes (common in binary files)
+  if (sample.includes(0)) return true
+
+  // Check for high percentage of non-printable ASCII characters
+  let nonPrintableCount = 0
+  for (let i = 0; i < sample.length; i++) {
+    const byte = sample[i]
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) {
+      nonPrintableCount++
+    }
+  }
+
+  const nonPrintableRatio = nonPrintableCount / sample.length
+  return nonPrintableRatio > 0.3
+}
+
 // Job types
 export interface AssetProcessingJobData {
   assetId: number
@@ -356,9 +386,325 @@ async function processMetadata(asset: any, options: any) {
 
     // Extract video metadata using FFmpeg (if available)
     if (asset.file_type === 'video') {
-      // This would require FFmpeg integration
-      // For now, return basic metadata
-      metadata.video_metadata = 'FFmpeg integration needed for video metadata'
+      try {
+        console.log(`Extracting video metadata for ${asset.filename}`)
+
+        // Import video service to check FFmpeg availability
+        const videoService = await import('../services/video.service')
+        const defaultVideoService = videoService.default
+
+        const ffmpegAvailable =
+          await defaultVideoService.checkFFmpegAvailability()
+        if (!ffmpegAvailable) {
+          console.warn('FFmpeg not available for video metadata extraction')
+          metadata.video_metadata = 'FFmpeg not available'
+        } else {
+          // Create temporary file for FFmpeg analysis
+          const tempPath = `/tmp/metadata_${asset.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp4`
+          fs.writeFileSync(tempPath, fileBuffer)
+
+          // Use FFmpeg to extract video metadata
+          const { spawn } = await import('child_process')
+
+          const ffmpeg = spawn('ffprobe', [
+            '-v',
+            'quiet',
+            '-print_format',
+            'json',
+            '-show_format',
+            '-show_streams',
+            tempPath,
+          ])
+
+          let stdout = ''
+          let stderr = ''
+
+          ffmpeg.stdout.on('data', (data) => {
+            stdout += data.toString()
+          })
+
+          ffmpeg.stderr.on('data', (data) => {
+            stderr += data.toString()
+          })
+
+          const metadataResult = await new Promise<any>((resolve, reject) => {
+            ffmpeg.on('close', (code) => {
+              if (code === 0) {
+                try {
+                  const videoInfo = JSON.parse(stdout)
+                  resolve(videoInfo)
+                } catch (parseError) {
+                  reject(
+                    new Error(`Failed to parse FFmpeg output: ${parseError}`)
+                  )
+                }
+              } else {
+                reject(new Error(`FFprobe failed with code ${code}: ${stderr}`))
+              }
+            })
+          })
+
+          // Clean up temp file
+          try {
+            fs.unlinkSync(tempPath)
+          } catch (cleanupError) {
+            console.warn(
+              `Could not clean up temp file ${tempPath}:`,
+              cleanupError
+            )
+          }
+
+          // Extract relevant video metadata
+          const videoStream = metadataResult.streams?.find(
+            (s: any) => s.codec_type === 'video'
+          )
+          const audioStream = metadataResult.streams?.find(
+            (s: any) => s.codec_type === 'audio'
+          )
+
+          metadata.video_metadata = {
+            format: metadataResult.format?.format_name || 'unknown',
+            duration: metadataResult.format?.duration || 'unknown',
+            bitrate: metadataResult.format?.bit_rate || 'unknown',
+            video_stream: videoStream
+              ? {
+                  codec: videoStream.codec_name || 'unknown',
+                  width: videoStream.width || 'unknown',
+                  height: videoStream.height || 'unknown',
+                  fps: videoStream.r_frame_rate || 'unknown',
+                  bitrate: videoStream.bit_rate || 'unknown',
+                }
+              : null,
+            audio_stream: audioStream
+              ? {
+                  codec: audioStream.codec_name || 'unknown',
+                  sample_rate: audioStream.sample_rate || 'unknown',
+                  channels: audioStream.channels || 'unknown',
+                  bitrate: audioStream.bit_rate || 'unknown',
+                }
+              : null,
+            extracted_at: new Date(),
+          }
+
+          console.log(
+            `Video metadata extracted successfully for ${asset.filename}`
+          )
+        }
+      } catch (error) {
+        console.error(
+          `Failed to extract video metadata for ${asset.filename}:`,
+          error
+        )
+        metadata.video_metadata = {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          extracted_at: new Date(),
+        }
+      }
+    }
+
+    // Extract audio metadata using FFmpeg (if available)
+    if (asset.file_type === 'audio') {
+      try {
+        console.log(`Extracting audio metadata for ${asset.filename}`)
+
+        // Import video service to check FFmpeg availability
+        const videoService = await import('../services/video.service')
+        const defaultVideoService = videoService.default
+
+        const ffmpegAvailable =
+          await defaultVideoService.checkFFmpegAvailability()
+        if (!ffmpegAvailable) {
+          console.warn('FFmpeg not available for audio metadata extraction')
+          metadata.audio_metadata = 'FFmpeg not available'
+        } else {
+          // Create temporary file for FFmpeg analysis
+          const tempPath = `/tmp/metadata_${asset.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${asset.mime_type.split('/')[1] || 'mp3'}`
+          fs.writeFileSync(tempPath, fileBuffer)
+
+          // Use FFmpeg to extract audio metadata
+          const { spawn } = await import('child_process')
+
+          const ffmpeg = spawn('ffprobe', [
+            '-v',
+            'quiet',
+            '-print_format',
+            'json',
+            '-show_format',
+            '-show_streams',
+            tempPath,
+          ])
+
+          let stdout = ''
+          let stderr = ''
+
+          ffmpeg.stdout.on('data', (data) => {
+            stdout += data.toString()
+          })
+
+          ffmpeg.stderr.on('data', (data) => {
+            stderr += data.toString()
+          })
+
+          const metadataResult = await new Promise<any>((resolve, reject) => {
+            ffmpeg.on('close', (code) => {
+              if (code === 0) {
+                try {
+                  const audioInfo = JSON.parse(stdout)
+                  resolve(audioInfo)
+                } catch (parseError) {
+                  reject(
+                    new Error(`Failed to parse FFmpeg output: ${parseError}`)
+                  )
+                }
+              } else {
+                reject(new Error(`FFprobe failed with code ${code}: ${stderr}`))
+              }
+            })
+          })
+
+          // Clean up temp file
+          try {
+            fs.unlinkSync(tempPath)
+          } catch (cleanupError) {
+            console.warn(
+              `Could not clean up temp file ${tempPath}:`,
+              cleanupError
+            )
+          }
+
+          // Extract relevant audio metadata
+          const audioStream = metadataResult.streams?.find(
+            (s: any) => s.codec_type === 'audio'
+          )
+
+          metadata.audio_metadata = {
+            format: metadataResult.format?.format_name || 'unknown',
+            duration: metadataResult.format?.duration || 'unknown',
+            bitrate: metadataResult.format?.bit_rate || 'unknown',
+            audio_stream: audioStream
+              ? {
+                  codec: audioStream.codec_name || 'unknown',
+                  sample_rate: audioStream.sample_rate || 'unknown',
+                  channels: audioStream.channels || 'unknown',
+                  bitrate: audioStream.bit_rate || 'unknown',
+                  language: audioStream.tags?.language || 'unknown',
+                }
+              : null,
+            extracted_at: new Date(),
+          }
+
+          console.log(
+            `Audio metadata extracted successfully for ${asset.filename}`
+          )
+        }
+      } catch (error) {
+        console.error(
+          `Failed to extract audio metadata for ${asset.filename}:`,
+          error
+        )
+        metadata.audio_metadata = {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          extracted_at: new Date(),
+        }
+      }
+    }
+
+    // Extract document metadata using file analysis
+    if (
+      [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/plain',
+        'text/html',
+        'application/json',
+        'application/xml',
+      ].includes(asset.mime_type)
+    ) {
+      try {
+        console.log(`Extracting document metadata for ${asset.filename}`)
+
+        // Basic document metadata extraction
+        metadata.document_metadata = {
+          file_extension: asset.filename.split('.').pop() || 'unknown',
+          mime_type: asset.mime_type,
+          file_size_bytes: fileBuffer.length,
+          file_size_formatted: formatFileSize(fileBuffer.length),
+          encoding: 'binary',
+          extracted_at: new Date(),
+        }
+
+        // Try to extract text content for text-based files
+        if (
+          asset.mime_type.startsWith('text/') ||
+          asset.mime_type === 'application/json' ||
+          asset.mime_type === 'application/xml'
+        ) {
+          try {
+            const textContent = fileBuffer.toString('utf8')
+            metadata.document_metadata.text_preview =
+              textContent.substring(0, 500) +
+              (textContent.length > 500 ? '...' : '')
+            metadata.document_metadata.encoding = 'utf8'
+            metadata.document_metadata.line_count =
+              textContent.split('\n').length
+            metadata.document_metadata.word_count = textContent
+              .split(/\s+/)
+              .filter((word) => word.length > 0).length
+          } catch (textError) {
+            console.warn(`Could not extract text content: ${textError}`)
+          }
+        }
+
+        console.log(
+          `Document metadata extracted successfully for ${asset.filename}`
+        )
+      } catch (error) {
+        console.error(
+          `Failed to extract document metadata for ${asset.filename}:`,
+          error
+        )
+        metadata.document_metadata = {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          extracted_at: new Date(),
+        }
+      }
+    }
+
+    // Extract generic file metadata for any other file types
+    if (
+      !metadata.image_metadata &&
+      !metadata.video_metadata &&
+      !metadata.audio_metadata &&
+      !metadata.document_metadata
+    ) {
+      try {
+        console.log(`Extracting generic metadata for ${asset.filename}`)
+
+        metadata.generic_metadata = {
+          file_extension: asset.filename.split('.').pop() || 'unknown',
+          mime_type: asset.mime_type,
+          file_size_bytes: fileBuffer.length,
+          file_size_formatted: formatFileSize(fileBuffer.length),
+          is_binary: isBinaryFile(fileBuffer),
+          extracted_at: new Date(),
+        }
+
+        console.log(
+          `Generic metadata extracted successfully for ${asset.filename}`
+        )
+      } catch (error) {
+        console.error(
+          `Failed to extract generic metadata for ${asset.filename}:`,
+          error
+        )
+        metadata.generic_metadata = {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          extracted_at: new Date(),
+        }
+      }
     }
 
     return metadata

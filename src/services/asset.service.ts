@@ -14,6 +14,12 @@ import {
 } from '../validation'
 import { validateString } from '../middleware/validation'
 import { uploadFile, deleteFile, getSignedReadUrl, fileExists } from './storage'
+import {
+  checkForDuplicates,
+  handleDuplicateFile,
+  DuplicateHandlingOptions,
+  DuplicateHandlingResult,
+} from './duplicate.service'
 import { Readable } from 'stream'
 import {
   detectFileType,
@@ -23,6 +29,7 @@ import {
   formatFileSize,
 } from '../utils/fileTypeUtils'
 import path from 'path'
+import crypto from 'crypto'
 
 // Shared database pool instance
 const pool: Pool = getPool()
@@ -216,29 +223,26 @@ export const deleteAsset = async (id: number): Promise<boolean> => {
   }
 }
 
-// Check for duplicate files by filename and content hash
+// Check for duplicate files using the duplicate service
 async function checkDuplicateFile(
   filename: string,
   fileBuffer: Buffer
 ): Promise<{ isDuplicate: boolean; existingAsset?: Asset; reason: string }> {
   try {
-    // Check by filename first
-    const existingByFilename = await pool.query(
-      'SELECT * FROM assets WHERE filename = $1 ORDER BY created_at DESC LIMIT 1',
-      [filename]
+    const duplicateResult = await checkForDuplicates(
+      filename,
+      fileBuffer,
+      filename
     )
 
-    if (existingByFilename.rows.length > 0) {
-      const existing = existingByFilename.rows[0]
+    if (duplicateResult.isDuplicate) {
+      const existingAsset = duplicateResult.existingAssets[0]
+      const reason = `File "${filename}" already exists (${duplicateResult.duplicateType} duplicate)`
 
-      // Check if file sizes match (basic duplicate detection)
-      if (existing.file_size === fileBuffer.length) {
-        return {
-          isDuplicate: true,
-          existingAsset: existing,
-          reason: `File "${filename}" already exists with same size (${formatFileSize(fileBuffer.length)})`,
-        }
-      } else {
+      return {
+        isDuplicate: true,
+        existingAsset: existingAsset,
+        reason: reason,
       }
     }
 
@@ -321,6 +325,12 @@ export const uploadAssetFile = async (
 
     await uploadFile(storagePath, file.buffer)
 
+    // Generate content hash for duplicate detection
+    const contentHash = crypto
+      .createHash('sha256')
+      .update(file.buffer)
+      .digest('hex')
+
     const assetData: CreateAssetRequest = {
       filename: file.originalname,
       original_name: file.originalname,
@@ -337,6 +347,7 @@ export const uploadAssetFile = async (
         uploadMethod: 'api',
         formattedSize: formatFileSize(file.size),
         uploadTimestamp: new Date().toISOString(),
+        contentHash: contentHash, // Add content hash for duplicate detection
       },
     }
 

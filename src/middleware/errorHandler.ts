@@ -1,9 +1,18 @@
 import { Request, Response, NextFunction } from 'express'
-import { createErrorResponse } from '../utils/response.utils'
 import { createValidationError, createUnauthorizedError } from '../utils/errors'
-import { ErrorType, HttpStatus } from '../types/error.types'
 
-// Error handler middleware using enums
+// Simple error response function
+const createErrorResponse = (
+  error: any,
+  req: Request,
+  statusCode: number = 500
+) => ({
+  success: false,
+  error: error.message || 'Internal server error',
+  timestamp: new Date().toISOString(),
+  path: req.originalUrl,
+  method: req.method,
+})
 
 export const errorHandler = (
   error: Error | any,
@@ -22,57 +31,49 @@ export const errorHandler = (
 
   // If it's our custom API error, use its status code
   if (error.statusCode) {
-    const errorResponse = createErrorResponse(error, req)
+    const errorResponse = createErrorResponse(error, req, error.statusCode)
     res.status(error.statusCode).json(errorResponse)
     return
   }
 
-  // Handle specific error types using enums
-  if (error.name === ErrorType.VALIDATION_ERROR) {
-    const errorResponse = createErrorResponse(
-      error,
-      req,
-      HttpStatus.BAD_REQUEST
-    )
-    res.status(HttpStatus.BAD_REQUEST).json(errorResponse)
+  // Handle specific error types
+  if (error.name === 'ValidationError') {
+    const errorResponse = createErrorResponse(error, req, 400)
+    res.status(400).json(errorResponse)
     return
   }
 
-  if (error.name === ErrorType.CAST_ERROR) {
+  if (error.name === 'CastError') {
     const errorResponse = createErrorResponse(
       createValidationError('Invalid ID format'),
       req,
-      HttpStatus.BAD_REQUEST
+      400
     )
-    res.status(HttpStatus.BAD_REQUEST).json(errorResponse)
+    res.status(400).json(errorResponse)
     return
   }
 
-  if (error.name === ErrorType.JWT_ERROR) {
+  if (error.name === 'JWTError') {
     const errorResponse = createErrorResponse(
       createUnauthorizedError('Invalid token'),
       req,
-      HttpStatus.UNAUTHORIZED
+      401
     )
-    res.status(HttpStatus.UNAUTHORIZED).json(errorResponse)
+    res.status(401).json(errorResponse)
     return
   }
 
-  if (error.name === ErrorType.TOKEN_EXPIRED) {
+  if (error.name === 'TokenExpired') {
     const errorResponse = createErrorResponse(
       createUnauthorizedError('Token expired'),
       req,
-      HttpStatus.UNAUTHORIZED
+      401
     )
-    res.status(HttpStatus.UNAUTHORIZED).json(errorResponse)
+    res.status(401).json(errorResponse)
     return
   }
 
   // Default error response
-  const errorResponse = createErrorResponse(
-    error,
-    req,
-    HttpStatus.INTERNAL_SERVER
-  )
-  res.status(HttpStatus.INTERNAL_SERVER).json(errorResponse)
+  const errorResponse = createErrorResponse(error, req, 500)
+  res.status(500).json(errorResponse)
 }

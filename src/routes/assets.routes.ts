@@ -96,50 +96,37 @@ router.get('/:id/access', async (req, res) => {
 
 // Upload one or many files and create assets
 // Accepts: form-data with keys 'file' (single) or 'files' (multiple), or multiple 'file' entries
-// Optional query parameters:
-// - skipDuplicates=true: Skip duplicate files
-// - replaceDuplicates=true: Replace duplicate files
+// Optional body parameters for duplicate handling:
+// - duplicateAction: 'skip' | 'replace' | 'error'
+// - replaceAssetId: ID of asset to replace (required if duplicateAction is 'replace')
 router.post('/upload', upload.any(), async (req, res) => {
   const requestId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
 
   try {
     const files = (req.files as Express.Multer.File[]) || []
 
-    // Check for recent duplicates (within last 5 minutes)
-    const recentDuplicates = []
-    for (const file of files) {
-      const result = await pool.query(
-        "SELECT id, original_name, created_at FROM assets WHERE original_name = $1 AND created_at > NOW() - INTERVAL '5 minutes'",
-        [file.originalname]
-      )
-      if (result.rows.length > 0) {
-        recentDuplicates.push({
-          filename: file.originalname,
-          existingId: result.rows[0].id,
-          uploadedAt: result.rows[0].created_at,
-        })
-      }
-    }
-
-    if (recentDuplicates.length > 0) {
-      return res.status(409).json({
-        success: false,
-        error: 'Duplicate files detected',
-        message:
-          'These files were recently uploaded. Please wait before uploading again.',
-        duplicates: recentDuplicates,
-      })
+    // Parse duplicate handling options from request body
+    const duplicateOptions = {
+      duplicateAction: req.body.duplicateAction || 'error',
+      replaceAssetId: req.body.replaceAssetId
+        ? parseInt(req.body.replaceAssetId)
+        : undefined,
     }
 
     validateUploadRequest(files)
 
-    // Get upload options from query parameters
-    const skipDuplicates = req.query.skipDuplicates === 'true'
-    const replaceDuplicates = req.query.replaceDuplicates === 'true'
+    // Validate duplicate handling options
+    if (
+      duplicateOptions.duplicateAction === 'replace' &&
+      !duplicateOptions.replaceAssetId
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'replaceAssetId is required when duplicateAction is "replace"',
+      })
+    }
 
-    // Validate upload options
-    const uploadOptions = { skipDuplicates, replaceDuplicates }
-    validateUploadOptions(uploadOptions)
+    // Rename functionality removed - only skip and replace are supported
 
     // Optional metadata from fields (applied to all)
     const baseMetadata = {
@@ -148,7 +135,9 @@ router.post('/upload', upload.any(), async (req, res) => {
     }
 
     validateUploadMetadata(baseMetadata)
-    validateBatchUpload(files, uploadOptions)
+    validateBatchUpload(files, {
+      skipDuplicates: duplicateOptions.duplicateAction === 'skip',
+    })
 
     const results = []
     const skipped = []
@@ -156,19 +145,85 @@ router.post('/upload', upload.any(), async (req, res) => {
     const uploaded = []
 
     for (const file of files) {
-      const result = await uploadAssetFile(file, baseMetadata, {
-        skipDuplicates,
-        replaceDuplicates,
-      })
+      try {
+        // Check for duplicates first
+        const { checkForDuplicates } = await import(
+          '../services/duplicate.service'
+        )
+        const duplicateResult = await checkForDuplicates(
+          file.originalname || 'unknown',
+          file.buffer,
+          file.originalname
+        )
 
-      if (result.skipped) {
-        skipped.push({ filename: file.originalname, reason: result.message })
-      } else if (result.replaced) {
-        replaced.push({ filename: file.originalname, message: result.message })
-        results.push(result.asset)
-      } else {
-        uploaded.push({ filename: file.originalname, message: result.message })
-        results.push(result.asset)
+        if (duplicateResult.isDuplicate) {
+          // Handle duplicate based on user preference
+          if (duplicateOptions.duplicateAction === 'skip') {
+            skipped.push({
+              filename: file.originalname,
+              reason: `Skipped duplicate: ${duplicateResult.duplicateType}`,
+            })
+          } else if (duplicateOptions.duplicateAction === 'rename') {
+            // Rename functionality removed - only skip and replace are supported
+            skipped.push({
+              filename: file.originalname,
+              reason:
+                'Rename functionality is not supported. Use "skip" or "replace" instead.',
+            })
+          } else if (
+            duplicateOptions.duplicateAction === 'replace' &&
+            duplicateOptions.replaceAssetId
+          ) {
+            // For replace, we need to delete the old asset first, then upload new one
+            const assetToReplace = duplicateResult.existingAssets.find(
+              (asset) => asset.id === duplicateOptions.replaceAssetId
+            )
+
+            if (assetToReplace) {
+              // Delete old asset
+              const { deleteAsset } = await import('../services/asset.service')
+              await deleteAsset(assetToReplace.id)
+
+              // Upload new asset
+              const result = await uploadAssetFile(file, {
+                ...baseMetadata,
+                replacedFrom: assetToReplace.filename,
+                replacedAt: new Date().toISOString(),
+              })
+
+              replaced.push({
+                filename: file.originalname,
+                message: `Replaced asset ID: ${assetToReplace.id}`,
+              })
+              results.push(result.asset)
+            } else {
+              skipped.push({
+                filename: file.originalname,
+                reason: 'Asset to replace not found',
+              })
+            }
+          } else {
+            // Default to error - skip the file
+            skipped.push({
+              filename: file.originalname,
+              reason: `Duplicate detected: ${duplicateResult.duplicateType}. Use duplicateAction to specify how to handle.`,
+            })
+          }
+        } else {
+          // No duplicate, proceed with normal upload
+          const result = await uploadAssetFile(file, baseMetadata)
+          uploaded.push({
+            filename: file.originalname,
+            message: result.message,
+          })
+          results.push(result.asset)
+        }
+      } catch (error) {
+        console.error(`Error processing file ${file.originalname}:`, error)
+        skipped.push({
+          filename: file.originalname,
+          reason: error instanceof Error ? error.message : 'Unknown error',
+        })
       }
     }
 
@@ -180,7 +235,7 @@ router.post('/upload', upload.any(), async (req, res) => {
       message += `Replaced: ${replaced.length} duplicate files. `
     }
     if (skipped.length > 0) {
-      message += `Skipped: ${skipped.length} duplicate files. `
+      message += `Skipped: ${skipped.length} files. `
     }
 
     if (results.length === 1) {
@@ -210,6 +265,90 @@ router.post('/upload', upload.any(), async (req, res) => {
   } catch (error) {
     console.error(`Error uploading file(s):`, error)
     res.status(500).json({ success: false, error: 'Failed to upload file(s)' })
+  }
+})
+
+// Check for duplicate files before upload
+router.post('/check-duplicates-simple', async (req, res) => {
+  try {
+    const { filename, fileSize, contentHash } = req.body
+
+    if (!filename) {
+      return res.status(400).json({
+        success: false,
+        error: 'filename is required',
+      })
+    }
+
+    // Check for duplicates by filename
+    const filenameQuery = `
+      SELECT id, filename, original_name, file_size, created_at, metadata 
+      FROM assets 
+      WHERE filename = $1 AND deleted_at IS NULL
+      ORDER BY created_at DESC
+    `
+    const filenameResult = await pool.query(filenameQuery, [filename])
+
+    // Check for duplicates by content hash if provided
+    let contentResult = { rows: [] }
+    if (contentHash) {
+      const contentQuery = `
+        SELECT id, filename, original_name, file_size, created_at, metadata 
+        FROM assets 
+        WHERE metadata->>'contentHash' = $1 AND deleted_at IS NULL
+        ORDER BY created_at DESC
+      `
+      contentResult = await pool.query(contentQuery, [contentHash])
+    }
+
+    // Check for duplicates by file size if provided
+    let sizeResult = { rows: [] }
+    if (fileSize) {
+      const sizeQuery = `
+        SELECT id, filename, original_name, file_size, created_at, metadata 
+        FROM assets 
+        WHERE file_size = $1 AND deleted_at IS NULL
+        ORDER BY created_at DESC
+      `
+      sizeResult = await pool.query(sizeQuery, [fileSize])
+    }
+
+    // Combine and deduplicate results
+    const allResults = [
+      ...filenameResult.rows,
+      ...contentResult.rows,
+      ...sizeResult.rows,
+    ]
+    const uniqueResults = allResults.filter(
+      (asset, index, self) => index === self.findIndex((a) => a.id === asset.id)
+    )
+
+    const duplicates = uniqueResults.map((asset) => ({
+      id: asset.id,
+      filename: asset.filename,
+      original_name: asset.original_name,
+      file_size: asset.file_size,
+      created_at: asset.created_at,
+      duplicateType:
+        contentHash && asset.metadata?.contentHash === contentHash
+          ? 'content'
+          : filename === asset.filename
+            ? 'filename'
+            : 'size',
+    }))
+
+    res.json({
+      success: true,
+      hasDuplicates: duplicates.length > 0,
+      duplicates: duplicates,
+      count: duplicates.length,
+    })
+  } catch (error) {
+    console.error('Error checking for duplicates:', error)
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check for duplicates',
+    })
   }
 })
 
@@ -429,7 +568,7 @@ router.post('/:id/convert', async (req, res) => {
   }
 })
 
-// Process all operations for an asset (thumbnail + metadata + conversion)
+// Process all operations for an asset
 router.post('/:id/process-all', async (req, res) => {
   try {
     const id = parseInt(req.params.id)

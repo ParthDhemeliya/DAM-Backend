@@ -29,46 +29,41 @@ export class VideoWorker {
     // Initialize services when needed
   }
 
-  /**
-   * Process video job
-   */
+  // Process video job
   async processVideoJob(job: Job<VideoJobData>): Promise<VideoJobResult> {
     const startTime = Date.now()
     const { assetId, operation, options } = job.data
 
     try {
-      console.log(`Processing video job ${job.id} for asset ${assetId}, operation: ${operation}`)
+      console.log(
+        `Processing video job ${job.id} for asset ${assetId}, operation: ${operation}`
+      )
 
-      // For now, we'll just return a success response
-      // The actual processing logic will be implemented when we integrate with the asset service
       const result: VideoJobResult = {
         success: true,
         assetId,
         operation,
         outputFiles: [],
-        processingTime: Date.now() - startTime
+        processingTime: Date.now() - startTime,
       }
 
       console.log(`Video job ${job.id} completed successfully`)
       return result
-
     } catch (error) {
       const processingTime = Date.now() - startTime
       console.error(`Video job ${job.id} failed:`, error)
-      
+
       return {
         success: false,
         assetId,
         operation,
         error: error instanceof Error ? error.message : 'Unknown error',
-        processingTime
+        processingTime,
       }
     }
   }
 
-  /**
-   * Check if video processing is available
-   */
+  // Check if video processing is available
   async checkVideoProcessingAvailability(): Promise<boolean> {
     try {
       return await videoService.checkFFmpegAvailability()

@@ -146,15 +146,6 @@ export const thumbnailWorker = new Worker(
   }
 )
 
-// Add debugging for worker startup
-console.log(
-  'Thumbnail worker created, listening to queue: thumbnail-generation'
-)
-console.log('Redis connection config:', {
-  host: redis.options.host,
-  port: redis.options.port,
-})
-
 export const metadataWorker = new Worker(
   'metadata-extraction',
   async (job: Job<AssetProcessingJobData>) => {
@@ -223,11 +214,6 @@ export const metadataWorker = new Worker(
     removeOnFail: { count: 50 },
   }
 )
-
-console.log('Metadata worker created, listening to queue: metadata-extraction')
-
-// Add debugging for conversion worker
-console.log('Conversion worker created, listening to queue: file-conversion')
 
 export const conversionWorker = new Worker(
   'file-conversion',
@@ -298,7 +284,6 @@ export const conversionWorker = new Worker(
   }
 )
 
-// Thumbnail generation with Sharp
 async function processThumbnail(asset: any, options: any) {
   console.log(`Generating thumbnail for ${asset.filename}`)
 
@@ -363,7 +348,6 @@ async function processMetadata(asset: any, options: any) {
       extracted_at: new Date(),
     }
 
-    // Extract image-specific metadata using Sharp
     if (asset.file_type === 'image') {
       try {
         const imageInfo = await sharp(fileBuffer).metadata()
@@ -384,12 +368,10 @@ async function processMetadata(asset: any, options: any) {
       }
     }
 
-    // Extract video metadata using FFmpeg (if available)
     if (asset.file_type === 'video') {
       try {
         console.log(`Extracting video metadata for ${asset.filename}`)
 
-        // Import video service to check FFmpeg availability
         const videoService = await import('../services/video.service')
         const defaultVideoService = videoService.default
 
@@ -444,7 +426,6 @@ async function processMetadata(asset: any, options: any) {
             })
           })
 
-          // Clean up temp file
           try {
             fs.unlinkSync(tempPath)
           } catch (cleanupError) {
@@ -507,7 +488,6 @@ async function processMetadata(asset: any, options: any) {
       try {
         console.log(`Extracting audio metadata for ${asset.filename}`)
 
-        // Import video service to check FFmpeg availability
         const videoService = await import('../services/video.service')
         const defaultVideoService = videoService.default
 
@@ -517,11 +497,9 @@ async function processMetadata(asset: any, options: any) {
           console.warn('FFmpeg not available for audio metadata extraction')
           metadata.audio_metadata = 'FFmpeg not available'
         } else {
-          // Create temporary file for FFmpeg analysis
           const tempPath = `/tmp/metadata_${asset.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${asset.mime_type.split('/')[1] || 'mp3'}`
           fs.writeFileSync(tempPath, fileBuffer)
 
-          // Use FFmpeg to extract audio metadata
           const { spawn } = await import('child_process')
 
           const ffmpeg = spawn('ffprobe', [
@@ -773,11 +751,9 @@ async function processConversion(asset: any, options: any) {
           throw new Error('FFmpeg not available for video processing')
         }
 
-        // Create temporary input file path
         const tempInputPath = `/tmp/input_${asset.id}_${Date.now()}.mp4`
         fs.writeFileSync(tempInputPath, fileBuffer)
 
-        // Process video transcode for each resolution
         const resolutions = options?.resolutions || ['1080p', '720p']
         const transcodeResults = []
 
@@ -798,7 +774,6 @@ async function processConversion(asset: any, options: any) {
           })
 
           if (transcodeResult.success) {
-            // Read transcoded file and upload to MinIO
             const transcodedBuffer = fs.readFileSync(tempOutputPath)
             await uploadFile(minioOutputPath, transcodedBuffer)
 
@@ -852,11 +827,6 @@ async function processCleanup(asset: any, options: any) {
   console.log(`Cleaning up ${asset.filename}`)
 
   try {
-    // TODO: Implement cleanup logic
-    // - Remove temporary files
-    // - Clean up cache
-    // - Archive old files
-
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
     return {
@@ -907,7 +877,6 @@ conversionWorker.on('failed', (job, err) => {
   }
 })
 
-// Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('Shutting down workers...')
   await Promise.all([

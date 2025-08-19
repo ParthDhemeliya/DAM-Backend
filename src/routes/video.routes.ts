@@ -14,10 +14,9 @@ const validateRequired = (body: any, fields: string[]): void => {
   }
 }
 
-/**
- * Process video with specified operations
- */
-router.post('/process', 
+// Process video with specified operations
+router.post(
+  '/process',
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId, operation, options } = req.body
 
@@ -29,7 +28,7 @@ router.post('/process',
     if (!validOperations.includes(operation)) {
       return res.status(400).json({
         success: false,
-        error: `Invalid operation. Must be one of: ${validOperations.join(', ')}`
+        error: `Invalid operation. Must be one of: ${validOperations.join(', ')}`,
       })
     }
 
@@ -37,7 +36,7 @@ router.post('/process',
     const job = await addVideoJob({
       assetId,
       operation,
-      options: options || {}
+      options: options || {},
     })
 
     res.json({
@@ -48,16 +47,15 @@ router.post('/process',
         assetId,
         operation,
         options,
-        status: 'queued'
-      }
+        status: 'queued',
+      },
     })
   })
 )
 
-/**
- * Transcode video to different resolutions
- */
-router.post('/transcode',
+// Transcode video to different resolutions
+router.post(
+  '/transcode',
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId, resolutions, quality, format } = req.body
 
@@ -67,12 +65,12 @@ router.post('/transcode',
     // Validate resolutions
     const validResolutions = ['1080p', '720p', '480p']
     const resolutionsToProcess = resolutions || ['1080p', '720p']
-    
+
     for (const res of resolutionsToProcess) {
       if (!validResolutions.includes(res)) {
         return res.status(400).json({
           success: false,
-          error: `Invalid resolution: ${res}. Must be one of: ${validResolutions.join(', ')}`
+          error: `Invalid resolution: ${res}. Must be one of: ${validResolutions.join(', ')}`,
         })
       }
     }
@@ -84,8 +82,8 @@ router.post('/transcode',
       options: {
         resolution: resolutionsToProcess[0], // Will process all in worker
         quality: quality || 'medium',
-        format: format || 'mp4'
-      }
+        format: format || 'mp4',
+      },
     })
 
     res.json({
@@ -98,16 +96,15 @@ router.post('/transcode',
         resolutions: resolutionsToProcess,
         quality,
         format,
-        status: 'queued'
-      }
+        status: 'queued',
+      },
     })
   })
 )
 
-/**
- * Generate thumbnail from video
- */
-router.post('/thumbnail',
+// Generate thumbnail from video
+router.post(
+  '/thumbnail',
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId, time } = req.body
 
@@ -119,7 +116,7 @@ router.post('/thumbnail',
     if (time && !timeRegex.test(time)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid time format. Use HH:MM:SS format'
+        error: 'Invalid time format. Use HH:MM:SS format',
       })
     }
 
@@ -128,8 +125,8 @@ router.post('/thumbnail',
       assetId,
       operation: 'thumbnail',
       options: {
-        thumbnailTime: time || '00:00:01'
-      }
+        thumbnailTime: time || '00:00:01',
+      },
     })
 
     res.json({
@@ -140,16 +137,15 @@ router.post('/thumbnail',
         assetId,
         operation: 'thumbnail',
         time: time || '00:00:01',
-        status: 'queued'
-      }
+        status: 'queued',
+      },
     })
   })
 )
 
-/**
- * Extract metadata from video
- */
-router.post('/metadata',
+// Extract metadata from video
+router.post(
+  '/metadata',
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.body
 
@@ -159,7 +155,7 @@ router.post('/metadata',
     // Add metadata extraction job
     const job = await addVideoJob({
       assetId,
-      operation: 'metadata'
+      operation: 'metadata',
     })
 
     res.json({
@@ -169,16 +165,15 @@ router.post('/metadata',
       data: {
         assetId,
         operation: 'metadata',
-        status: 'queued'
-      }
+        status: 'queued',
+      },
     })
   })
 )
 
-/**
- * Get supported video formats
- */
-router.get('/supported-formats',
+// Get supported video formats
+router.get(
+  '/supported-formats',
   asyncHandler(async (req: Request, res: Response) => {
     const formats = videoService.getSupportedFormats()
     const resolutions = videoService.getSupportedResolutions()
@@ -188,35 +183,33 @@ router.get('/supported-formats',
       data: {
         formats,
         resolutions,
-        quality: ['high', 'medium', 'low']
-      }
+        quality: ['high', 'medium', 'low'],
+      },
     })
   })
 )
 
-/**
- * Check video processing service health
- */
-router.get('/health',
+// Check video processing service health
+router.get(
+  '/health',
   asyncHandler(async (req: Request, res: Response) => {
     const ffmpegAvailable = await videoService.checkFFmpegAvailability()
-    
+
     res.json({
       success: true,
       data: {
         service: 'video-processing',
         status: ffmpegAvailable ? 'healthy' : 'unhealthy',
         ffmpeg: ffmpegAvailable ? 'available' : 'not available',
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     })
   })
 )
 
-/**
- * Get video processing jobs for an asset
- */
-router.get('/jobs/:assetId',
+// Get video processing jobs for an asset
+router.get(
+  '/jobs/:assetId',
   asyncHandler(async (req: Request, res: Response) => {
     const { assetId } = req.params
     const { status, limit = 10, offset = 0 } = req.query
@@ -236,9 +229,9 @@ router.get('/jobs/:assetId',
         pagination: {
           limit: parseInt(limit as string),
           offset: parseInt(offset as string),
-          total: jobs.length
-        }
-      }
+          total: jobs.length,
+        },
+      },
     })
   })
 )

@@ -8,15 +8,8 @@ const pool = getPool()
 // Main function to initialize the entire database
 export const initializeDatabase = async (): Promise<void> => {
   try {
-    console.log('Starting database initialization...')
-
-    // Step 1: Create database structure
     await executeSchemaFile()
-
-    // Step 2: Add sample data for testing
     await insertSampleData()
-
-    console.log('Database initialization completed successfully!')
   } catch (error) {
     console.error('Database initialization failed:', error)
     throw error
@@ -29,9 +22,7 @@ const executeSchemaFile = async (): Promise<void> => {
     const schemaPath = path.join(__dirname, '../../database/schema.sql')
     const schemaSQL = fs.readFileSync(schemaPath, 'utf8')
 
-    console.log('Executing database schema...')
     await pool.query(schemaSQL)
-    console.log('Database schema created successfully')
   } catch (error) {
     console.error('Error executing schema:', error)
     throw error
@@ -41,12 +32,8 @@ const executeSchemaFile = async (): Promise<void> => {
 // Insert sample data for testing and development
 const insertSampleData = async (): Promise<void> => {
   try {
-    console.log('Inserting sample data...')
-
-    // Check if sample data already exists
     const existingAssets = await pool.query('SELECT COUNT(*) FROM assets')
     if (parseInt(existingAssets.rows[0].count) > 0) {
-      console.log('Sample data already exists, skipping...')
       return
     }
 
@@ -130,8 +117,6 @@ const insertSampleData = async (): Promise<void> => {
         [job.job_type, job.asset_id, job.status, job.priority]
       )
     }
-
-    console.log('Sample data inserted successfully')
   } catch (error) {
     console.error('Error inserting sample data:', error)
     throw error
@@ -147,7 +132,6 @@ export const closeConnection = async (): Promise<void> => {
 if (require.main === module) {
   initializeDatabase()
     .then(() => {
-      console.log('Database initialization completed!')
       process.exit(0)
     })
     .catch((error) => {

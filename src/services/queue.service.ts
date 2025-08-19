@@ -33,9 +33,6 @@ export const addAssetProcessingJob = async (
   data: QueueJobData
 ) => {
   try {
-    console.log(`Adding ${jobType} job to queue for asset ${data.assetId}`)
-
-    // Create job record in database
     const jobRecord = await createJob({
       job_type: jobType,
       asset_id: data.assetId,
@@ -43,7 +40,6 @@ export const addAssetProcessingJob = async (
       priority: data.priority || 1,
     })
 
-    // Check if job was created successfully
     if (!jobRecord.id) {
       throw new Error('Failed to create job record - no ID returned')
     }
@@ -103,7 +99,7 @@ export const addAssetProcessingJob = async (
 
     // Add job to queue with delay if specified
     const jobOptions: any = {
-      jobId: `job_${jobRecord.id}`, // BullMQ requires string IDs
+      jobId: `job_${jobRecord.id}`,
       priority: data.priority || 1,
       removeOnComplete: 100,
       removeOnFail: 50,
@@ -115,7 +111,6 @@ export const addAssetProcessingJob = async (
 
     const job = await queue.add(jobType, jobData, jobOptions)
 
-    console.log(`${jobType} job added to queue with ID: ${job.id}`)
     return job
   } catch (error) {
     console.error(`Failed to add ${jobType} job:`, error)
@@ -143,7 +138,7 @@ export const addVideoJob = async (data: VideoJobData) => {
       throw new Error('Failed to create video job record - no ID returned')
     }
 
-    // Add job to video processing queue (using conversion queue for now)
+    // Add job to video processing queue \
     const jobOptions: any = {
       jobId: `video_${jobRecord.id}`,
       priority: data.priority || 1,

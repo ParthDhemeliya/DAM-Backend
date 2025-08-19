@@ -100,26 +100,10 @@ router.get('/:id/access', async (req, res) => {
 // - skipDuplicates=true: Skip duplicate files
 // - replaceDuplicates=true: Replace duplicate files
 router.post('/upload', upload.any(), async (req, res) => {
-  console.log('🔥 UPLOAD ROUTE HIT - REQUEST RECEIVED')
-  console.log('🔥 Request method:', req.method)
-  console.log('🔥 Request URL:', req.url)
-  console.log('🔥 Request body keys:', Object.keys(req.body))
-  console.log(
-    '🔥 Request files count:',
-    req.files ? req.files.length : 'NO FILES'
-  )
-
   const requestId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-  console.log(`🚀 [${requestId}] UPLOAD REQUEST STARTED`)
-  console.log(
-    `📁 [${requestId}] Files received:`,
-    (req.files as Express.Multer.File[])?.map((f) => f.originalname)
-  )
-  console.log(`🔍 [${requestId}] Request headers:`, req.headers)
 
   try {
     const files = (req.files as Express.Multer.File[]) || []
-    console.log(`📊 [${requestId}] Processing ${files.length} files`)
 
     // Check for recent duplicates (within last 5 minutes)
     const recentDuplicates = []
@@ -138,10 +122,6 @@ router.post('/upload', upload.any(), async (req, res) => {
     }
 
     if (recentDuplicates.length > 0) {
-      console.log(
-        `⚠️ [${requestId}] Recent duplicates detected:`,
-        recentDuplicates
-      )
       return res.status(409).json({
         success: false,
         error: 'Duplicate files detected',
@@ -151,7 +131,6 @@ router.post('/upload', upload.any(), async (req, res) => {
       })
     }
 
-    // Validate upload request
     validateUploadRequest(files)
 
     // Get upload options from query parameters
@@ -168,10 +147,7 @@ router.post('/upload', upload.any(), async (req, res) => {
       description: (req.body.description as string) || 'Uploaded via API',
     }
 
-    // Validate metadata
     validateUploadMetadata(baseMetadata)
-
-    // Validate batch upload
     validateBatchUpload(files, uploadOptions)
 
     const results = []
@@ -179,9 +155,7 @@ router.post('/upload', upload.any(), async (req, res) => {
     const replaced = []
     const uploaded = []
 
-    console.log(`🔄 [${requestId}] Starting file processing loop`)
     for (const file of files) {
-      console.log(`📤 [${requestId}] Processing file: ${file.originalname}`)
       const result = await uploadAssetFile(file, baseMetadata, {
         skipDuplicates,
         replaceDuplicates,
@@ -198,14 +172,6 @@ router.post('/upload', upload.any(), async (req, res) => {
       }
     }
 
-    console.log(`✅ [${requestId}] File processing completed. Results:`, {
-      uploaded: uploaded.length,
-      replaced: replaced.length,
-      skipped: skipped.length,
-      total: results.length,
-    })
-
-    // Prepare response message
     let message = ''
     if (uploaded.length > 0) {
       message += `Uploaded: ${uploaded.length} new files. `
@@ -218,7 +184,6 @@ router.post('/upload', upload.any(), async (req, res) => {
     }
 
     if (results.length === 1) {
-      console.log(`🎯 [${requestId}] Single file response sent`)
       return res.status(201).json({
         success: true,
         data: results[0],
@@ -231,7 +196,6 @@ router.post('/upload', upload.any(), async (req, res) => {
       })
     }
 
-    console.log(`🎯 [${requestId}] Multiple files response sent`)
     return res.status(201).json({
       success: true,
       count: results.length,
@@ -244,7 +208,7 @@ router.post('/upload', upload.any(), async (req, res) => {
       },
     })
   } catch (error) {
-    console.error(`❌ [${requestId}] Error uploading file(s):`, error)
+    console.error(`Error uploading file(s):`, error)
     res.status(500).json({ success: false, error: 'Failed to upload file(s)' })
   }
 })

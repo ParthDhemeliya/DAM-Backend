@@ -94,32 +94,8 @@ import {
   conversionWorker,
 } from './workers/asset-processing.worker'
 
-console.log('Starting background workers...')
-
-// Start the workers
 try {
-  // The workers are automatically started when imported
-  // Just verify they're running
-  console.log('- Thumbnail worker: Active')
-  console.log('- Metadata worker: Active')
-  console.log('- Conversion worker: Active')
-
-  // Debug: Check if workers are actually created
-  console.log(
-    'Thumbnail worker object:',
-    thumbnailWorker ? 'Created' : 'NOT CREATED'
-  )
-  console.log(
-    'Metadata worker object:',
-    metadataWorker ? 'Created' : 'NOT CREATED'
-  )
-  console.log(
-    'Conversion worker object:',
-    conversionWorker ? 'Created' : 'NOT CREATED'
-  )
-
-  // Test worker connectivity
-  console.log('Workers started successfully')
+  // Workers are automatically started when imported
 } catch (error) {
   console.error('Failed to start workers:', error)
 }
@@ -139,10 +115,6 @@ app.use('*', (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port: http://localhost:${PORT}`)
-  console.log(`Health check: http://localhost:${PORT}/health`)
-  console.log(`Assets API: http://localhost:${PORT}/api/assets`)
-  console.log(`Jobs API: http://localhost:${PORT}/api/jobs`)
-  console.log(`Video API: http://localhost:${PORT}/api/video`)
 })
 
 export default app

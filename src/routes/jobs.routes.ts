@@ -81,7 +81,7 @@ router.put('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const updateData: UpdateJobRequest = req.body
-    console.log('Updating job with ID:', id, 'Data:', updateData)
+    // Updating job
     const job = await updateJob(id, updateData)
 
     if (!job) {

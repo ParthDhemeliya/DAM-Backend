@@ -32,25 +32,15 @@ export const createAsset = async (
   assetData: CreateAssetRequest
 ): Promise<Asset> => {
   try {
-    console.log('=== CREATE ASSET SERVICE START ===')
-    console.log('Input asset data:', assetData)
-    console.log('Asset data type:', typeof assetData)
-    console.log('Asset data keys:', Object.keys(assetData || {}))
-
-    // Note: File should already be uploaded before calling this function
-    // This function only creates the database record
-
-    console.log('Starting validation...')
+    // Starting validation
     validateAssetData(assetData)
-    console.log('Asset data validation passed')
 
-    console.log('Building SQL query...')
+    // Building SQL query
     const query = `
       INSERT INTO assets (filename, original_name, file_type, mime_type, file_size, storage_path, storage_bucket, metadata)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
     `
-    console.log('SQL Query:', query)
 
     const values = [
       assetData.filename.trim(),
@@ -62,36 +52,18 @@ export const createAsset = async (
       assetData.storage_bucket || 'dam-media',
       JSON.stringify(assetData.metadata || {}),
     ]
-    console.log('Query values:', values)
-    console.log(
-      'Values types:',
-      values.map((v) => typeof v)
-    )
 
-    console.log('Executing database query...')
+    // Executing database query
     const result = await pool.query(query, values)
-    console.log('Database query result:', result)
-    console.log('Result rows:', result.rows)
 
     if (!result.rows[0]) {
       throw new Error('Failed to create asset - no data returned')
     }
 
-    console.log(`Asset created successfully: ${result.rows[0].filename}`)
+    // Asset created successfully
     return result.rows[0]
   } catch (error) {
-    console.error('=== CREATE ASSET SERVICE ERROR ===')
-    console.error('Error type:', typeof error)
-    console.error('Error constructor:', error?.constructor?.name)
-
-    // Use type guards to safely access error properties
-    if (error && typeof error === 'object' && 'message' in error) {
-      console.error('Error message:', (error as any).message)
-    }
-    if (error && typeof error === 'object' && 'stack' in error) {
-      console.error('Error stack:', (error as any).stack)
-    }
-    console.error('Full error object:', error)
+    console.error('Asset creation failed:', error)
 
     // Re-throw with more context
     if (error instanceof Error) {
@@ -250,44 +222,26 @@ async function checkDuplicateFile(
   fileBuffer: Buffer
 ): Promise<{ isDuplicate: boolean; existingAsset?: Asset; reason: string }> {
   try {
-    console.log(
-      `Checking for duplicates: ${filename} (size: ${fileBuffer.length})`
-    )
-
     // Check by filename first
     const existingByFilename = await pool.query(
       'SELECT * FROM assets WHERE filename = $1 ORDER BY created_at DESC LIMIT 1',
       [filename]
     )
 
-    console.log(
-      `Found ${existingByFilename.rows.length} existing files with name: ${filename}`
-    )
-
     if (existingByFilename.rows.length > 0) {
       const existing = existingByFilename.rows[0]
-      console.log(
-        `Existing file: ${existing.filename}, size: ${existing.file_size}, new file size: ${fileBuffer.length}`
-      )
 
       // Check if file sizes match (basic duplicate detection)
       if (existing.file_size === fileBuffer.length) {
-        console.log(
-          `DUPLICATE DETECTED: ${filename} - same size (${fileBuffer.length})`
-        )
         return {
           isDuplicate: true,
           existingAsset: existing,
           reason: `File "${filename}" already exists with same size (${formatFileSize(fileBuffer.length)})`,
         }
       } else {
-        console.log(
-          `Size mismatch: existing=${existing.file_size}, new=${fileBuffer.length}`
-        )
       }
     }
 
-    console.log(`No duplicate found for: ${filename}`)
     return { isDuplicate: false, reason: 'No duplicate found' }
   } catch (error) {
     console.error('Error checking for duplicates:', error)
@@ -307,14 +261,6 @@ export const uploadAssetFile = async (
   message: string
 }> => {
   const functionId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-  console.log(`=== UPLOAD ASSET FILE START [${functionId}] ===`)
-  console.log(`📁 [${functionId}] File info:`, {
-    filename: file.filename,
-    originalname: file.originalname,
-    mimetype: file.mimetype,
-    size: file.size,
-    buffer: `Buffer(${file.buffer.length} bytes)`,
-  })
 
   try {
     // Validate upload options
@@ -330,14 +276,8 @@ export const uploadAssetFile = async (
 
     if (duplicateCheck.isDuplicate) {
       const existingAsset = duplicateCheck.existingAsset!
-      console.log(
-        `🔄 [${functionId}] Duplicate detected: ${file.originalname} (size: ${file.buffer.length})`
-      )
 
       if (options?.skipDuplicates) {
-        console.log(
-          `⏭️ [${functionId}] Skipping duplicate file: ${file.originalname}`
-        )
         return {
           skipped: true,
           message: `Skipped: ${duplicateCheck.reason}`,
@@ -345,34 +285,16 @@ export const uploadAssetFile = async (
       }
 
       if (options?.replaceDuplicates) {
-        console.log(
-          `🔄 [${functionId}] Replacing duplicate file: ${file.originalname}`
-        )
-
-        // Delete old file from MinIO
         try {
           await deleteFile(existingAsset.storage_path)
-          console.log(
-            `🗑️ [${functionId}] Deleted old file: ${existingAsset.storage_path}`
-          )
         } catch (deleteError) {
           console.warn(
-            `⚠️ [${functionId}] Could not delete old file: ${deleteError}`
+            ` [${functionId}] Could not delete old file: ${deleteError}`
           )
         }
 
-        // Delete old asset from database
         await pool.query('DELETE FROM assets WHERE id = $1', [existingAsset.id])
-        console.log(
-          `🗑️ [${functionId}] Deleted old asset record: ${existingAsset.id}`
-        )
-
-        // Continue with new upload
       } else {
-        // Default behavior: skip duplicates
-        console.log(
-          `⏭️ [${functionId}] Default behavior: Skipping duplicate file: ${file.originalname}`
-        )
         return {
           skipped: true,
           message: `Skipped: ${duplicateCheck.reason}`,
@@ -397,12 +319,8 @@ export const uploadAssetFile = async (
     const filename = `${timestamp}-${file.originalname}`
     const storagePath = `assets/${filename}`
 
-    console.log(`📤 [${functionId}] Uploading to MinIO: ${storagePath}`)
-    // Upload to MinIO
     await uploadFile(storagePath, file.buffer)
-    console.log(`✅ [${functionId}] MinIO upload successful: ${storagePath}`)
 
-    // Create asset record
     const assetData: CreateAssetRequest = {
       filename: file.originalname,
       original_name: file.originalname,
@@ -422,22 +340,8 @@ export const uploadAssetFile = async (
       },
     }
 
-    console.log(
-      `💾 [${functionId}] Creating database record for: ${file.originalname}`
-    )
-    const asset = await createAsset(assetData) // Remove file.buffer to prevent double upload
-    console.log(
-      `✅ [${functionId}] Asset created successfully: ${file.originalname} (ID: ${asset.id})`
-    )
-
-    // Auto-queue background processing jobs based on file type
-    console.log(
-      `🔄 [${functionId}] Queuing background jobs for: ${file.originalname}`
-    )
+    const asset = await createAsset(assetData)
     await queueAutoProcessingJobs(asset)
-    console.log(
-      `✅ [${functionId}] Background jobs queued for: ${file.originalname}`
-    )
 
     return {
       asset,
@@ -447,8 +351,7 @@ export const uploadAssetFile = async (
           : `Uploaded: ${file.originalname}`,
     }
   } catch (error) {
-    console.log(`❌ [${functionId}] === UPLOAD ASSET FILE ERROR ===`)
-    console.error(`❌ [${functionId}] Error:`, error)
+    console.error(`Error:`, error)
     throw error
   }
 }
@@ -456,11 +359,6 @@ export const uploadAssetFile = async (
 // Auto-queue background processing jobs based on file type
 async function queueAutoProcessingJobs(asset: Asset) {
   try {
-    console.log(
-      `Auto-queuing processing jobs for asset ${asset.id} (${asset.file_type})`
-    )
-
-    // Import queue config and job service
     const { thumbnailQueue, metadataQueue, conversionQueue } = await import(
       '../config/queue.config'
     )
@@ -468,7 +366,6 @@ async function queueAutoProcessingJobs(asset: Asset) {
 
     const jobs = []
 
-    // Always extract metadata for all files
     const metadataJob = await createJob({
       job_type: 'metadata',
       asset_id: asset.id!,
@@ -548,10 +445,8 @@ async function queueAutoProcessingJobs(asset: Asset) {
 
     // Process videos with FFmpeg
     if (asset.file_type === 'video') {
-      // Queue video processing jobs (these will be handled by video workers)
       console.log(`Auto-queuing video processing jobs for asset ${asset.id}`)
 
-      // Queue video metadata extraction
       const videoMetadataJob = await createJob({
         job_type: 'video_metadata',
         asset_id: asset.id!,
@@ -578,7 +473,6 @@ async function queueAutoProcessingJobs(asset: Asset) {
         },
       })
 
-      // Add to video processing queue (using conversion queue for now)
       const { conversionQueue } = await import('../config/queue.config')
 
       await conversionQueue.add(
@@ -617,7 +511,6 @@ async function queueAutoProcessingJobs(asset: Asset) {
 
     // Process audio files
     if (asset.file_type === 'audio') {
-      // Queue audio metadata extraction and conversion if needed
       console.log(`Auto-queuing audio processing jobs for asset ${asset.id}`)
 
       // Queue audio metadata extraction
@@ -687,16 +580,10 @@ async function queueAutoProcessingJobs(asset: Asset) {
         }
       )
     }
-
-    console.log(
-      `Auto-queued ${jobs.length} processing jobs for asset ${asset.id}:`,
-      jobs
-    )
   } catch (error) {
     console.error(
       `Failed to auto-queue processing jobs for asset ${asset.id}:`,
       error
     )
-    // Don't throw error - asset upload should still succeed even if job queuing fails
   }
 }

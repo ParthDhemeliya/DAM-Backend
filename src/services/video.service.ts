@@ -35,9 +35,7 @@ export interface VideoProcessingResult {
 }
 
 export class VideoService {
-  /**
-   * Extract metadata from video file using FFmpeg
-   */
+  // Extract metadata from video file using FFmpeg
   async extractMetadata(filePath: string): Promise<VideoMetadata> {
     try {
       const command = `ffprobe -v quiet -print_format json -show_format -show_streams "${filePath}"`
@@ -45,7 +43,9 @@ export class VideoService {
       const data = JSON.parse(stdout)
 
       // Get video stream
-      const videoStream = data.streams.find((stream: any) => stream.codec_type === 'video')
+      const videoStream = data.streams.find(
+        (stream: any) => stream.codec_type === 'video'
+      )
       const format = data.format
 
       if (!videoStream) {
@@ -59,17 +59,17 @@ export class VideoService {
         bitrate: parseInt(format.bit_rate) || 0,
         codec: videoStream.codec_name || 'unknown',
         format: format.format_name || 'unknown',
-        fps: parseFloat(videoStream.r_frame_rate?.split('/')[0] || '0') / parseFloat(videoStream.r_frame_rate?.split('/')[1] || '1'),
-        size: parseInt(format.size) || 0
+        fps:
+          parseFloat(videoStream.r_frame_rate?.split('/')[0] || '0') /
+          parseFloat(videoStream.r_frame_rate?.split('/')[1] || '1'),
+        size: parseInt(format.size) || 0,
       }
     } catch (error) {
       throw new Error(`Failed to extract video metadata: ${error}`)
     }
   }
 
-  /**
-   * Generate thumbnail from video
-   */
+  // Generate thumbnail from video
   async generateThumbnail(
     inputPath: string,
     outputPath: string,
@@ -84,12 +84,12 @@ export class VideoService {
     }
   }
 
-  /**
-   * Transcode video to different resolution
-   */
-  async transcodeVideo(options: VideoProcessingOptions): Promise<VideoProcessingResult> {
+  // Transcode video to different resolution
+  async transcodeVideo(
+    options: VideoProcessingOptions
+  ): Promise<VideoProcessingResult> {
     const startTime = Date.now()
-    
+
     try {
       // Ensure output directory exists
       const outputDir = path.dirname(options.outputPath)
@@ -99,35 +99,33 @@ export class VideoService {
 
       // Build FFmpeg command
       const command = this.buildTranscodeCommand(options)
-      
+
       // Execute FFmpeg command
       await this.executeFFmpegCommand(command)
-      
+
       // Extract metadata from output file
       const metadata = await this.extractMetadata(options.outputPath)
-      
+
       const processingTime = Date.now() - startTime
-      
+
       return {
         success: true,
         outputPath: options.outputPath,
         metadata,
-        processingTime
+        processingTime,
       }
     } catch (error) {
       const processingTime = Date.now() - startTime
-      
+
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        processingTime
+        processingTime,
       }
     }
   }
 
-  /**
-   * Build FFmpeg transcode command
-   */
+  // Build FFmpeg transcode command
   private buildTranscodeCommand(options: VideoProcessingOptions): string[] {
     const args: string[] = ['-i', options.inputPath]
 
@@ -136,7 +134,7 @@ export class VideoService {
       const resolutionMap = {
         '1080p': '1920:1080',
         '720p': '1280:720',
-        '480p': '854:480'
+        '480p': '854:480',
       }
       args.push('-vf', `scale=${resolutionMap[options.resolution]}`)
     }
@@ -144,9 +142,9 @@ export class VideoService {
     // Set quality
     if (options.quality) {
       const qualityMap = {
-        'high': '18',
-        'medium': '23',
-        'low': '28'
+        high: '18',
+        medium: '23',
+        low: '28',
       }
       args.push('-crf', qualityMap[options.quality])
     }
@@ -162,13 +160,11 @@ export class VideoService {
     return args
   }
 
-  /**
-   * Execute FFmpeg command
-   */
+  // Execute FFmpeg command
   private async executeFFmpegCommand(args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', args, {
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
       })
 
       let stderr = ''
@@ -191,9 +187,7 @@ export class VideoService {
     })
   }
 
-  /**
-   * Check if FFmpeg is available
-   */
+  // Check if FFmpeg is available
   async checkFFmpegAvailability(): Promise<boolean> {
     try {
       await execAsync('ffmpeg -version')
@@ -203,16 +197,12 @@ export class VideoService {
     }
   }
 
-  /**
-   * Get supported video formats
-   */
+  // Get supported video formats
   getSupportedFormats(): string[] {
     return ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv']
   }
 
-  /**
-   * Get supported resolutions
-   */
+  // Get supported resolutions
   getSupportedResolutions(): string[] {
     return ['1080p', '720p', '480p']
   }

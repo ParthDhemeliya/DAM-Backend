@@ -107,21 +107,361 @@ export const getAllAssets = async (): Promise<Asset[]> => {
   }
 }
 
+// Get assets with pagination and filters
+export const getAssetsWithFilters = async (options: {
+  page?: number
+  limit?: number
+  fileType?: string
+  status?: string
+  dateFrom?: string
+  dateTo?: string
+  tags?: string[]
+  category?: string
+  author?: string
+  department?: string
+  project?: string
+  sortBy?: 'created_at' | 'updated_at' | 'filename' | 'file_size'
+  sortOrder?: 'ASC' | 'DESC'
+}): Promise<{
+  assets: Asset[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+    hasNext: boolean
+    hasPrev: boolean
+  }
+}> => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      fileType,
+      status,
+      dateFrom,
+      dateTo,
+      tags,
+      category,
+      author,
+      department,
+      project,
+      sortBy = 'created_at',
+      sortOrder = 'DESC',
+    } = options
+
+    // Validate pagination parameters
+    if (page < 1) throw new Error('Page must be greater than 0')
+    if (limit < 1 || limit > 100)
+      throw new Error('Limit must be between 1 and 100')
+
+    // Build WHERE clause
+    const whereConditions: string[] = ['deleted_at IS NULL']
+    const queryParams: any[] = []
+    let paramCount = 0
+
+    if (fileType) {
+      paramCount++
+      whereConditions.push(`file_type = $${paramCount}`)
+      queryParams.push(fileType)
+    }
+
+    if (status) {
+      paramCount++
+      whereConditions.push(`status = $${paramCount}`)
+      queryParams.push(status)
+    }
+
+    if (dateFrom) {
+      paramCount++
+      whereConditions.push(`created_at >= $${paramCount}`)
+      queryParams.push(dateFrom)
+    }
+
+    if (dateTo) {
+      paramCount++
+      whereConditions.push(`created_at <= $${paramCount}`)
+      queryParams.push(dateTo)
+    }
+
+    if (category) {
+      paramCount++
+      whereConditions.push(`metadata->>'category' = $${paramCount}`)
+      queryParams.push(category)
+    }
+
+    if (author) {
+      paramCount++
+      whereConditions.push(`metadata->>'author' = $${paramCount}`)
+      queryParams.push(author)
+    }
+
+    if (department) {
+      paramCount++
+      whereConditions.push(`metadata->>'department' = $${paramCount}`)
+      queryParams.push(department)
+    }
+
+    if (project) {
+      paramCount++
+      whereConditions.push(`metadata->>'project' = $${paramCount}`)
+      queryParams.push(project)
+    }
+
+    if (tags && tags.length > 0) {
+      const tagConditions = tags.map((_, index) => {
+        paramCount++
+        return `metadata->'tags' ? $${paramCount}`
+      })
+      whereConditions.push(`(${tagConditions.join(' AND ')})`)
+      queryParams.push(...tags)
+    }
+
+    const whereClause =
+      whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : ''
+
+    // Build ORDER BY clause
+    const orderByClause = `ORDER BY ${sortBy} ${sortOrder}`
+
+    // Get total count for pagination
+    const countQuery = `SELECT COUNT(*) FROM assets ${whereClause}`
+    const countResult = await pool.query(countQuery, queryParams)
+    const total = parseInt(countResult.rows[0].count)
+
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit)
+    const offset = (page - 1) * limit
+    const hasNext = page < totalPages
+    const hasPrev = page > 1
+
+    // Get paginated results
+    const dataQuery = `
+      SELECT * FROM assets 
+      ${whereClause} 
+      ${orderByClause} 
+      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+    `
+    const dataParams = [...queryParams, limit, offset]
+    const dataResult = await pool.query(dataQuery, dataParams)
+
+    return {
+      assets: dataResult.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext,
+        hasPrev,
+      },
+    }
+  } catch (error) {
+    console.error('Error getting assets with filters:', error)
+    throw error
+  }
+}
+
+// Search assets by keyword (filename and tags)
+export const searchAssets = async (options: {
+  query: string
+  page?: number
+  limit?: number
+  fileType?: string
+  status?: string
+  sortBy?: 'created_at' | 'updated_at' | 'filename' | 'file_size'
+  sortOrder?: 'ASC' | 'DESC'
+}): Promise<{
+  assets: Asset[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+    hasNext: boolean
+    hasPrev: boolean
+  }
+}> => {
+  try {
+    const {
+      query,
+      page = 1,
+      limit = 20,
+      fileType,
+      status,
+      sortBy = 'created_at',
+      sortOrder = 'DESC',
+    } = options
+
+    // Validate parameters
+    if (!query || query.trim().length === 0) {
+      throw new Error('Search query is required')
+    }
+    if (page < 1) throw new Error('Page must be greater than 0')
+    if (limit < 1 || limit > 100)
+      throw new Error('Limit must be between 1 and 100')
+
+    // Build WHERE clause for search
+    const whereConditions: string[] = ['deleted_at IS NULL']
+    const queryParams: any[] = []
+    let paramCount = 0
+
+    // Add search conditions
+    paramCount++
+    whereConditions.push(`(
+      filename ILIKE $${paramCount} OR 
+      original_name ILIKE $${paramCount} OR 
+      metadata->>'tags' ILIKE $${paramCount} OR
+      metadata->>'description' ILIKE $${paramCount} OR
+      metadata->>'category' ILIKE $${paramCount} OR
+      metadata->>'author' ILIKE $${paramCount} OR
+      metadata->>'department' ILIKE $${paramCount} OR
+      metadata->>'project' ILIKE $${paramCount}
+    )`)
+    queryParams.push(`%${query.trim()}%`)
+
+    // Add filters
+    if (fileType) {
+      paramCount++
+      whereConditions.push(`file_type = $${paramCount}`)
+      queryParams.push(fileType)
+    }
+
+    if (status) {
+      paramCount++
+      whereConditions.push(`status = $${paramCount}`)
+      queryParams.push(status)
+    }
+
+    const whereClause = `WHERE ${whereConditions.join(' AND ')}`
+    const orderByClause = `ORDER BY ${sortBy} ${sortOrder}`
+
+    // Get total count for pagination
+    const countQuery = `SELECT COUNT(*) FROM assets ${whereClause}`
+    const countResult = await pool.query(countQuery, queryParams)
+    const total = parseInt(countResult.rows[0].count)
+
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit)
+    const offset = (page - 1) * limit
+    const hasNext = page < totalPages
+    const hasPrev = page > 1
+
+    // Get paginated search results
+    const dataQuery = `
+      SELECT * FROM assets 
+      ${whereClause} 
+      ${orderByClause} 
+      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+    `
+    const dataParams = [...queryParams, limit, offset]
+    const dataResult = await pool.query(dataQuery, dataParams)
+
+    return {
+      assets: dataResult.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext,
+        hasPrev,
+      },
+    }
+  } catch (error) {
+    console.error('Error searching assets:', error)
+    throw error
+  }
+}
+
+// Get assets with signed URLs for batch access
+export const getAssetsWithSignedUrls = async (
+  assetIds: number[],
+  expiresIn: number = 3600
+): Promise<(Asset & { signedUrl: string | null })[]> => {
+  try {
+    if (!assetIds || assetIds.length === 0) {
+      return []
+    }
+
+    // Get assets by IDs
+    const placeholders = assetIds.map((_, index) => `$${index + 1}`).join(',')
+    const query = `SELECT * FROM assets WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+    const result = await pool.query(query, assetIds)
+
+    if (result.rows.length === 0) {
+      return []
+    }
+
+    // Generate signed URLs for each asset
+    const assetsWithUrls = await Promise.all(
+      result.rows.map(async (asset) => {
+        try {
+          const signedUrl = await getSignedReadUrl(
+            asset.storage_path,
+            expiresIn
+          )
+          return {
+            ...asset,
+            signedUrl,
+          }
+        } catch (error) {
+          console.warn(
+            `Failed to generate signed URL for asset ${asset.id} (MinIO may be unavailable):`,
+            error instanceof Error ? error.message : 'Unknown error'
+          )
+          return {
+            ...asset,
+            signedUrl: null,
+          }
+        }
+      })
+    )
+
+    return assetsWithUrls
+  } catch (error) {
+    console.error('Error getting assets with signed URLs:', error)
+    // Return assets without signed URLs instead of throwing error
+    try {
+      const placeholders = assetIds.map((_, index) => `$${index + 1}`).join(',')
+      const query = `SELECT * FROM assets WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+      const result = await pool.query(query, assetIds)
+
+      return result.rows.map((asset) => ({
+        ...asset,
+        signedUrl: null,
+      }))
+    } catch (dbError) {
+      console.error('Database query also failed:', dbError)
+      throw new Error('Failed to retrieve assets')
+    }
+  }
+}
+
 // Get asset with signed URL for access
 export const getAssetWithSignedUrl = async (
   id: number,
   expiresIn: number = 3600
-): Promise<(Asset & { signedUrl: string }) | null> => {
+): Promise<(Asset & { signedUrl: string | null }) | null> => {
   try {
     const asset = await getAssetById(id)
     if (!asset) return null
 
-    // Generate signed URL for MinIO access
-    const signedUrl = await getSignedReadUrl(asset.storage_path, expiresIn)
-
-    return {
-      ...asset,
-      signedUrl,
+    try {
+      // Generate signed URL for MinIO access
+      const signedUrl = await getSignedReadUrl(asset.storage_path, expiresIn)
+      return {
+        ...asset,
+        signedUrl,
+      }
+    } catch (minioError) {
+      console.warn(
+        `Failed to generate signed URL for asset ${id} (MinIO may be unavailable):`,
+        minioError instanceof Error ? minioError.message : 'Unknown error'
+      )
+      return {
+        ...asset,
+        signedUrl: null,
+      }
     }
   } catch (error) {
     console.error('Error getting asset with signed URL:', error)

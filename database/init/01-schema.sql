@@ -42,6 +42,20 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_asset_id ON jobs(asset_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type);
 
+-- Additional indexes for Asset Retrieval API optimization
+CREATE INDEX IF NOT EXISTS idx_assets_metadata_tags ON assets USING GIN ((metadata->'tags'));
+CREATE INDEX IF NOT EXISTS idx_assets_metadata_category ON assets USING GIN ((metadata->'category'));
+CREATE INDEX IF NOT EXISTS idx_assets_metadata_author ON assets USING GIN ((metadata->'author'));
+CREATE INDEX IF NOT EXISTS idx_assets_metadata_department ON assets USING GIN ((metadata->'department'));
+CREATE INDEX IF NOT EXISTS idx_assets_metadata_project ON assets USING GIN ((metadata->'project'));
+CREATE INDEX IF NOT EXISTS idx_assets_updated_at ON assets(updated_at);
+CREATE INDEX IF NOT EXISTS idx_assets_deleted_at ON assets(deleted_at);
+
+-- Composite indexes for common query patterns
+CREATE INDEX IF NOT EXISTS idx_assets_type_status_created ON assets(file_type, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_assets_status_created_at ON assets(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_assets_type_created_at ON assets(file_type, created_at DESC);
+
 -- Create a function to update the updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$

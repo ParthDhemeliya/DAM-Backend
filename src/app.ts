@@ -7,6 +7,7 @@ import assetsRoutes from './routes/assets.routes'
 import jobsRoutes from './routes/jobs.routes'
 import queuesRoutes from './routes/queues.routes'
 import videoRoutes from './routes/video.routes'
+import statsRoutes from './routes/stats.routes'
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler'
@@ -22,15 +23,44 @@ app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    message: 'DAM Backend API is running',
-  })
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connection
+    const { testConnection } = await import('./config/database.config')
+    const dbConnected = await testConnection()
+
+    // Test Redis connection
+    const redisConnected = await testRedisConnection()
+
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      message: 'DAM Backend API is running',
+      services: {
+        database: dbConnected ? 'connected' : 'disconnected',
+        redis: redisConnected ? 'connected' : 'disconnected',
+        server: 'running',
+        port: process.env.PORT || 3000,
+      },
+      environment: process.env.NODE_ENV || 'development',
+    })
+  } catch (error) {
+    res.status(500).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      message: 'Health check failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      services: {
+        database: 'error',
+        redis: 'error',
+        server: 'running',
+        port: process.env.PORT || 3000,
+      },
+    })
+  }
 })
 
-// Root endpoint
+// Root endpoint with API documentation
 app.get('/', (req, res) => {
   res.json({
     message: 'DAM Backend API',
@@ -45,6 +75,11 @@ app.get('/', (req, res) => {
         delete: 'DELETE /api/assets/:id',
         upload: 'POST /api/assets/upload',
         access: 'GET /api/assets/:id/access',
+        list: 'GET /api/assets?page&limit&fileType&status&dateFrom&dateTo&tags&category&author&department&project&sortBy&sortOrder&includeSignedUrls&expiresIn',
+        search:
+          'GET /api/assets/search?q&page&limit&fileType&status&sortBy&sortOrder&includeSignedUrls&expiresIn',
+        batchAccess: 'POST /api/assets/batch-access',
+        checkDuplicates: 'POST /api/assets/check-duplicates-simple',
       },
       jobs: {
         base: '/api/jobs',
@@ -77,6 +112,71 @@ app.get('/', (req, res) => {
         health: 'GET /api/video/health',
         jobs: 'GET /api/video/jobs/:assetId',
       },
+      stats: {
+        base: '/api/stats',
+        dashboard: 'GET /api/stats',
+        uploads: 'GET /api/stats/uploads?period=month',
+        downloads: 'GET /api/stats/downloads?period=month',
+        latest: 'GET /api/stats/latest?limit=10',
+        popular: 'GET /api/stats/popular?limit=10',
+        assetAnalytics: 'GET /api/stats/asset/:assetId/analytics',
+        trackView: 'POST /api/stats/track-view',
+        trackDownload: 'POST /api/stats/track-download',
+        userBehavior: 'GET /api/stats/user/:userId/behavior',
+        realtime: 'GET /api/stats/realtime',
+      },
+    },
+    // Asset Retrieval API Documentation
+    assetRetrievalAPI: {
+      description:
+        'Enhanced asset retrieval with pagination, filtering, and search',
+      features: [
+        'Pagination support (page, limit)',
+        'Filtering by file type, status, date range, tags, category, author, department, project',
+        'Sorting by created_at, updated_at, filename, file_size',
+        'Keyword search across filename, tags, description, and metadata',
+        'Signed URL generation for direct asset access',
+        'Batch asset retrieval with signed URLs',
+        'Optimized database queries with proper indexing',
+      ],
+      examples: {
+        list: 'GET /api/assets?page=1&limit=20&fileType=image&status=processed&includeSignedUrls=true',
+        search: 'GET /api/assets/search?q=logo&fileType=image&page=1&limit=10',
+        filters:
+          'GET /api/assets?dateFrom=2024-01-01&dateTo=2024-12-31&tags=marketing&category=branding',
+      },
+    },
+    // Dashboard Analytics API Documentation
+    dashboardAnalyticsAPI: {
+      description:
+        'Dashboard analytics for uploads, downloads, and asset usage with Redis-powered real-time analytics',
+      features: [
+        'Download counts and trends',
+        'Upload counts and trends',
+        'Latest assets tracking',
+        'Popular assets ranking',
+        'Storage usage analytics',
+        'Activity monitoring',
+        'Period-based analytics (day, week, month, year)',
+        'Real-time asset usage analytics',
+        'Live view and download tracking',
+        'User behavior analysis and segmentation',
+        'Popular assets with popularity scoring',
+        'Real-time statistics and metrics',
+        'Performance monitoring and insights',
+      ],
+      examples: {
+        dashboard: 'GET /api/stats',
+        uploads: 'GET /api/stats/uploads?period=week',
+        downloads: 'GET /api/stats/downloads?period=month',
+        latest: 'GET /api/stats/latest?limit=20',
+        popular: 'GET /api/stats/popular?limit=15',
+        assetAnalytics: 'GET /api/stats/asset/71/analytics',
+        trackView: 'POST /api/stats/track-view',
+        trackDownload: 'POST /api/stats/track-download',
+        userBehavior: 'GET /api/stats/user/user123/behavior',
+        realtime: 'GET /api/stats/realtime',
+      },
     },
   })
 })
@@ -86,6 +186,7 @@ app.use('/api/assets', assetsRoutes)
 app.use('/api/jobs', jobsRoutes)
 app.use('/api/queues', queuesRoutes)
 app.use('/api/video', videoRoutes)
+app.use('/api/stats', statsRoutes)
 
 // Start background workers
 import {
@@ -94,38 +195,112 @@ import {
   conversionWorker,
 } from './workers/asset-processing.worker'
 
-try {
-  // Start all workers
-  console.log('Starting background workers...')
+// Import Redis analytics initialization
+import { initRedis, testRedisConnection } from './config/redis.config'
+import { initializeStatsService } from './services/stats.service'
 
-  // Start thumbnail worker
-  if (!thumbnailWorker.isRunning()) {
-    thumbnailWorker.run()
-    console.log('✅ Thumbnail worker started')
-  } else {
-    console.log('ℹ️ Thumbnail worker already running')
+// Startup service check function (non-blocking)
+const checkServices = async () => {
+  try {
+    // Check database connection
+    const { testConnection } = await import('./config/database.config')
+    const dbConnected = await testConnection()
+    if (dbConnected) {
+      console.log('Database: Connected')
+    } else {
+      console.log('Database: Connection failed')
+    }
+  } catch (error) {
+    console.log(
+      'Database: Connection error -',
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 
-  // Start metadata worker
-  if (!metadataWorker.isRunning()) {
-    metadataWorker.run()
-    console.log('✅ Metadata worker started')
-  } else {
-    console.log('ℹ️ Metadata worker already running')
+  try {
+    // Check Redis connection
+    const redisConnected = await testRedisConnection()
+    if (redisConnected) {
+      console.log('Redis: Connected')
+    } else {
+      console.log('Redis: Connection failed')
+    }
+  } catch (error) {
+    console.log(
+      'Redis: Connection error -',
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 
-  // Start conversion worker
-  if (!conversionWorker.isRunning()) {
-    conversionWorker.run()
-    console.log('✅ Conversion worker started')
-  } else {
-    console.log('ℹ️ Conversion worker already running')
+  try {
+    // Check MinIO connection (optional)
+    const { getSignedReadUrl } = await import('./services/storage')
+    await getSignedReadUrl('test', 1)
+    console.log('MinIO: Connected')
+  } catch (error) {
+    console.log('MinIO: Not available (Docker may be down)')
   }
-
-  console.log('All background workers started successfully!')
-} catch (error) {
-  console.error('Failed to start workers:', error)
 }
+
+// Wrap worker startup in try-catch to prevent crashes
+const startWorkers = async () => {
+  try {
+    console.log('Starting background workers...')
+
+    if (!thumbnailWorker.isRunning()) {
+      thumbnailWorker.run()
+      console.log('Thumbnail worker started')
+    }
+
+    if (!metadataWorker.isRunning()) {
+      metadataWorker.run()
+      console.log('Metadata worker started')
+    }
+
+    if (!conversionWorker.isRunning()) {
+      conversionWorker.run()
+      console.log('Conversion worker started')
+    }
+
+    console.log('All background workers started successfully!')
+  } catch (error) {
+    console.warn(
+      'Some background workers failed to start (Docker services may be unavailable):',
+      error
+    )
+    console.log('Server will continue running with limited functionality')
+  }
+}
+
+// Start services check and workers asynchronously
+checkServices().catch((error) => {
+  console.warn('Service check failed, but server will continue:', error)
+})
+
+// Initialize Redis and analytics services
+const initializeAnalytics = async () => {
+  try {
+    await initRedis()
+    await initializeStatsService()
+    console.log('Analytics services initialized successfully')
+  } catch (error) {
+    console.warn(
+      'Failed to initialize analytics services, continuing with fallback data:',
+      error
+    )
+  }
+}
+
+initializeAnalytics().catch((error) => {
+  console.warn(
+    'Analytics initialization failed, but server will continue:',
+    error
+  )
+})
+
+startWorkers().catch((error) => {
+  console.warn('Worker startup failed, but server will continue:', error)
+})
 
 // Error handling middleware
 app.use(errorHandler)
@@ -141,7 +316,24 @@ app.use('*', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port: http://localhost:${PORT}`)
+  console.log('Server running on port: http://localhost:3000')
+  console.log('API Documentation: http://localhost:3000/')
+  console.log('Health Check: http://localhost:3000/health')
+  console.log('')
+  console.log('Service Status:')
+  console.log('   • Server: Running')
+  console.log('   • Database: Checking...')
+  console.log('   • Redis: Checking...')
+  console.log('   • MinIO: Checking...')
+  console.log('   • Workers: Starting...')
+  console.log('')
+  console.log(
+    'Note: Server will run with limited functionality if Docker services are unavailable'
+  )
+  console.log(
+    'Start Docker services for full functionality (file uploads, processing, etc.)'
+  )
+  console.log('')
 })
 
 export default app

@@ -9,6 +9,9 @@ import {
   deleteAsset,
   getAssetWithSignedUrl,
   uploadAssetFile,
+  getAssetsWithFilters,
+  searchAssets,
+  getAssetsWithSignedUrls,
 } from '../services/asset.service'
 import {
   CreateAssetRequest,
@@ -40,12 +43,160 @@ const upload = multer({
   },
 })
 
-// Get all assets
+// Get all assets with pagination and filters
 router.get(
   '/',
   asyncHandler(async (req: any, res: any) => {
-    const assets = await getAllAssets()
-    res.json({ success: true, data: assets, count: assets.length })
+    const {
+      page = 1,
+      limit = 20,
+      fileType,
+      status,
+      dateFrom,
+      dateTo,
+      tags,
+      category,
+      author,
+      department,
+      project,
+      sortBy = 'created_at',
+      sortOrder = 'DESC',
+      includeSignedUrls = false,
+      expiresIn = 3600,
+    } = req.query
+
+    // Parse array parameters
+    const tagsArray = tags ? (Array.isArray(tags) ? tags : [tags]) : undefined
+
+    // Get assets with filters
+    const result = await getAssetsWithFilters({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      fileType,
+      status,
+      dateFrom,
+      dateTo,
+      tags: tagsArray,
+      category,
+      author,
+      department,
+      project,
+      sortBy,
+      sortOrder,
+    })
+
+    // Include signed URLs if requested
+    let assets = result.assets
+    if (includeSignedUrls === 'true') {
+      const assetIds = assets.map((asset) => asset.id)
+      assets = await getAssetsWithSignedUrls(assetIds, parseInt(expiresIn))
+    }
+
+    res.json({
+      success: true,
+      data: assets,
+      pagination: result.pagination,
+      filters: {
+        fileType,
+        status,
+        dateFrom,
+        dateTo,
+        tags: tagsArray,
+        category,
+        author,
+        department,
+        project,
+        sortBy,
+        sortOrder,
+      },
+    })
+  })
+)
+
+// Search assets by keyword
+router.get(
+  '/search',
+  asyncHandler(async (req: any, res: any) => {
+    const {
+      q: query,
+      page = 1,
+      limit = 20,
+      fileType,
+      status,
+      sortBy = 'created_at',
+      sortOrder = 'DESC',
+      includeSignedUrls = false,
+      expiresIn = 3600,
+    } = req.query
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        error: 'Search query parameter "q" is required',
+      })
+    }
+
+    // Search assets
+    const result = await searchAssets({
+      query: query.toString(),
+      page: parseInt(page),
+      limit: parseInt(limit),
+      fileType,
+      status,
+      sortBy,
+      sortOrder,
+    })
+
+    // Include signed URLs if requested
+    let assets = result.assets
+    if (includeSignedUrls === 'true') {
+      const assetIds = assets.map((asset) => asset.id)
+      assets = await getAssetsWithSignedUrls(assetIds, parseInt(expiresIn))
+    }
+
+    res.json({
+      success: true,
+      data: assets,
+      pagination: result.pagination,
+      search: {
+        query,
+        fileType,
+        status,
+        sortBy,
+        sortOrder,
+      },
+    })
+  })
+)
+
+// Get assets by IDs with signed URLs (batch access)
+router.post(
+  '/batch-access',
+  asyncHandler(async (req: any, res: any) => {
+    const { assetIds, expiresIn = 3600 } = req.body
+
+    if (!assetIds || !Array.isArray(assetIds) || assetIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'assetIds array is required and must not be empty',
+      })
+    }
+
+    if (assetIds.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'Maximum 100 assets can be accessed at once',
+      })
+    }
+
+    const assets = await getAssetsWithSignedUrls(assetIds, expiresIn)
+
+    res.json({
+      success: true,
+      data: assets,
+      count: assets.length,
+      message: `Retrieved ${assets.length} assets with signed URLs`,
+    })
   })
 )
 

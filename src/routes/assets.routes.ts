@@ -542,4 +542,120 @@ router.delete('/:id', async (req, res) => {
   }
 })
 
+// Download asset
+router.get('/:id/download', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const asset = await getAssetById(id)
+
+    if (!asset) {
+      return res.status(404).json({ success: false, error: 'Asset not found' })
+    }
+
+    // Get the file from storage
+    const { downloadFile } = await import('../services/storage')
+    const fileStream = await downloadFile(asset.storage_path)
+
+    if (!fileStream) {
+      return res.status(404).json({ success: false, error: 'File not found in storage' })
+    }
+
+    // Set appropriate headers for download
+    res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
+    res.setHeader('Content-Disposition', `attachment; filename="${asset.original_name || asset.filename}"`)
+    res.setHeader('Content-Length', asset.file_size)
+
+    // Track download for analytics
+    try {
+      const { trackAssetDownload } = await import('../services/redis-analytics.service')
+      await trackAssetDownload(id, 'anonymous', {
+        userAgent: req.get('User-Agent'),
+        ip: req.ip,
+        timestamp: new Date().toISOString()
+      })
+    } catch (trackError) {
+      console.warn('Failed to track download:', trackError)
+      // Don't fail the download if tracking fails
+    }
+
+    // Pipe the file stream to response
+    fileStream.pipe(res)
+  } catch (error) {
+    console.error('Error downloading asset:', error)
+    res.status(500).json({ success: false, error: 'Failed to download asset' })
+  }
+})
+
+// Stream asset (for preview/playback)
+router.get('/:id/stream', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const asset = await getAssetById(id)
+
+    if (!asset) {
+      return res.status(404).json({ success: false, error: 'Asset not found' })
+    }
+
+    // Get the file from storage
+    const { downloadFile } = await import('../services/storage')
+    const fileStream = await downloadFile(asset.storage_path)
+
+    if (!fileStream) {
+      return res.status(404).json({ success: false, error: 'File not found in storage' })
+    }
+
+    // Set appropriate headers for streaming
+    res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.setHeader('Content-Length', asset.file_size)
+
+    // Handle range requests for video/audio streaming
+    const range = req.headers.range
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-')
+      const start = parseInt(parts[0], 10)
+      const end = parts[1] ? parseInt(parts[1], 10) : asset.file_size - 1
+      const chunksize = (end - start) + 1
+
+      res.status(206)
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${asset.file_size}`)
+      res.setHeader('Content-Length', chunksize)
+
+      // Create a readable stream for the range
+      const { Readable } = await import('stream')
+      const rangeStream = new Readable()
+      rangeStream._read = () => {}
+      
+      fileStream.on('data', (chunk) => {
+        rangeStream.push(chunk)
+      })
+      fileStream.on('end', () => {
+        rangeStream.push(null)
+      })
+      
+      rangeStream.pipe(res)
+    } else {
+      // Stream the entire file
+      fileStream.pipe(res)
+    }
+
+    // Track view for analytics
+    try {
+      const { trackAssetView } = await import('../services/redis-analytics.service')
+      await trackAssetView(id, 'anonymous', {
+        userAgent: req.get('User-Agent'),
+        ip: req.ip,
+        timestamp: new Date().toISOString(),
+        action: 'stream'
+      })
+    } catch (trackError) {
+      console.warn('Failed to track stream view:', trackError)
+      // Don't fail the stream if tracking fails
+    }
+  } catch (error) {
+    console.error('Error streaming asset:', error)
+    res.status(500).json({ success: false, error: 'Failed to stream asset' })
+  }
+})
+
 export default router

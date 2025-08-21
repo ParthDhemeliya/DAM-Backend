@@ -13,6 +13,10 @@ interface DatabaseConfig {
   max: number
   idleTimeoutMillis: number
   connectionTimeoutMillis: number
+  acquireTimeoutMillis: number
+  reapIntervalMillis: number
+  createTimeoutMillis: number
+  destroyTimeoutMillis: number
 }
 
 // Get database configuration from environment variables
@@ -23,8 +27,12 @@ const dbConfig: DatabaseConfig = {
   user: process.env.DB_USER || 'dam_user',
   password: process.env.DB_PASSWORD || '123',
   max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  idleTimeoutMillis: 60000, // Increased from 30000 to 60000 (1 minute)
+  connectionTimeoutMillis: 10000, // Increased from 2000 to 10000 (10 seconds)
+  acquireTimeoutMillis: 10000, // New: timeout for acquiring connection from pool
+  reapIntervalMillis: 1000, // New: how often to check for idle connections
+  createTimeoutMillis: 10000, // New: timeout for creating new connections
+  destroyTimeoutMillis: 5000, // New: timeout for destroying connections
 }
 
 // Create a new pool instance
@@ -33,7 +41,15 @@ const pool = new Pool(dbConfig)
 // Handle pool errors
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err)
-  process.exit(-1)
+  // Don't exit the process, just log the error
+  console.error('Pool error occurred, but continuing...')
+})
+
+// Handle connection errors
+pool.on('connect', (client) => {
+  client.on('error', (err) => {
+    console.error('Client error:', err)
+  })
 })
 
 // Test database connection

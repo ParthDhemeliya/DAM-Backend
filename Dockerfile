@@ -10,21 +10,14 @@ RUN apk add --no-cache python3 make g++ ffmpeg libc6-compat
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install production dependencies only
 RUN npm ci --only=production && npm rebuild sharp || true
 
-# Copy source code
-COPY . .
+# Copy pre-built application
+COPY dist/ ./dist/
 
 # Create necessary directories
 RUN mkdir -p uploads logs
-
-# Build the application
-RUN npm run build
-
-# Remove dev dependencies and source code
-RUN npm prune --production
-RUN rm -rf src/ tsconfig.json nodemon.json
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs

@@ -104,10 +104,16 @@ export const thumbnailWorker = new Worker(
       // Process thumbnail
       const result = await processThumbnail(asset, options)
 
-      // Update asset with processing results
+      // Update asset with processing results and thumbnail path
       await updateAsset(assetId, {
         status: 'processed',
-        metadata: { ...asset.metadata, [jobType]: result },
+        metadata: {
+          ...asset.metadata,
+          [jobType]: result,
+          thumbnail_path: result.thumbnail_path,
+          thumbnail_generated: true,
+          thumbnail_dimensions: result.dimensions,
+        },
       })
 
       // Update job status to completed
@@ -307,11 +313,16 @@ async function processThumbnail(asset: any, options: any) {
       .jpeg({ quality: 80 })
       .toBuffer()
 
-    // Create thumbnail path
+    // Create thumbnail path - ensure it's in the correct bucket structure
     const thumbnailPath = `thumbnails/${asset.id}-thumb-${Date.now()}.jpg`
 
+    // Log the thumbnail path for debugging
+    console.log(`Thumbnail will be stored at: ${thumbnailPath}`)
+
     // Upload thumbnail to MinIO
-    await uploadFile(thumbnailPath, thumbnailBuffer)
+    console.log(`Uploading thumbnail to MinIO at path: ${thumbnailPath}`)
+    const uploadResult = await uploadFile(thumbnailPath, thumbnailBuffer)
+    console.log(`Thumbnail uploaded successfully:`, uploadResult)
 
     console.log(`Thumbnail generated and uploaded: ${thumbnailPath}`)
 

@@ -6,13 +6,13 @@ The Asset Retrieval API provides enhanced functionality for retrieving, filterin
 
 ## Features
 
-- ✅ **Pagination Support** - Efficient handling of large asset collections
-- ✅ **Advanced Filtering** - Filter by type, status, date range, tags, and metadata
-- ✅ **Full-Text Search** - Search across filename, tags, description, and metadata
-- ✅ **Signed URL Generation** - Secure direct access to assets
-- ✅ **Batch Operations** - Retrieve multiple assets with single request
-- ✅ **Optimized Queries** - Database indexes for fast performance
-- ✅ **Flexible Sorting** - Sort by various fields and directions
+- **Pagination Support** - Efficient handling of large asset collections
+- **Advanced Filtering** - Filter by type, status, date range, tags, and metadata
+- **Full-Text Search** - Search across filename, tags, description, and metadata
+- **Signed URL Generation** - Secure direct access to assets
+- **Batch Operations** - Retrieve multiple assets with single request
+- **Optimized Queries** - Database indexes for fast performance
+- **Flexible Sorting** - Sort by various fields and directions
 
 ## Endpoints
 
@@ -146,7 +146,7 @@ Search assets by keyword across filename, tags, description, and metadata.
 
 | Parameter           | Type    | Required | Description                 | Default      |
 | ------------------- | ------- | -------- | --------------------------- | ------------ |
-| `q`                 | string  | ✅       | Search query (min 2 chars)  | -            |
+| `q`                 | string  | Required | Search query (min 2 chars)  | -            |
 | `page`              | number  | -        | Page number (1-based)       | 1            |
 | `limit`             | number  | -        | Items per page (1-100)      | 20           |
 | `fileType`          | string  | -        | Filter by file type         | -            |
@@ -218,7 +218,7 @@ Retrieve multiple assets by IDs with signed URLs in a single request.
 
 | Parameter   | Type     | Required | Description                 | Constraints |
 | ----------- | -------- | -------- | --------------------------- | ----------- |
-| `assetIds`  | number[] | ✅       | Array of asset IDs          | Max 100 IDs |
+| `assetIds`  | number[] | Required | Array of asset IDs          | Max 100 IDs |
 | `expiresIn` | number   | -        | Signed URL expiry (seconds) | 60-86400    |
 
 #### Example Request
@@ -399,10 +399,10 @@ For questions or issues with the Asset Retrieval API:
 
 ### Version 1.0.0 (Current)
 
-- ✅ Pagination support
-- ✅ Advanced filtering by type, status, date, tags
-- ✅ Full-text search functionality
-- ✅ Signed URL generation
-- ✅ Batch asset access
-- ✅ Performance optimization with database indexes
-- ✅ Comprehensive validation and error handling
+- Pagination support
+- Advanced filtering by type, status, date, tags
+- Full-text search functionality
+- Signed URL generation
+- Batch asset access
+- Performance optimization with database indexes
+- Comprehensive validation and error handling

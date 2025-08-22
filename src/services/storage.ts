@@ -2,6 +2,8 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  CreateBucketCommand,
+  HeadBucketCommand,
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
@@ -10,6 +12,29 @@ import { s3 } from '../clients/s3'
 import { Readable } from 'stream'
 
 const bucketName = process.env.MINIO_BUCKET || 'dam-media'
+
+// 0. Ensure bucket exists
+export async function ensureBucketExists(): Promise<void> {
+  try {
+    // Check if bucket exists
+    await s3.send(new HeadBucketCommand({ Bucket: bucketName }))
+    console.log(`Bucket ${bucketName} already exists`)
+  } catch (error: any) {
+    if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+      // Bucket doesn't exist, create it
+      try {
+        await s3.send(new CreateBucketCommand({ Bucket: bucketName }))
+        console.log(`Bucket ${bucketName} created successfully`)
+      } catch (createError) {
+        console.error(`Failed to create bucket ${bucketName}:`, createError)
+        throw createError
+      }
+    } else {
+      console.error(`Error checking bucket ${bucketName}:`, error)
+      throw error
+    }
+  }
+}
 
 // 1. Upload file
 export async function uploadFile(

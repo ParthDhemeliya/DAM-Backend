@@ -87,6 +87,20 @@ export interface AssetMetadata {
   uploadTimestamp?: string
   replacedFrom?: string
   replacedAt?: string
+
+  // Processing results
+  thumbnail_path?: string
+  thumbnail_generated?: boolean
+  thumbnail_dimensions?: {
+    width: number
+    height: number
+  }
+  video_transcode?: {
+    success: boolean
+    resolutions?: string[]
+    output_paths?: string[]
+  }
+
   custom?: Record<string, any>
 }
 

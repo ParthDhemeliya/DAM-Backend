@@ -43,6 +43,41 @@ const upload = multer({
   },
 })
 
+// Test streaming endpoint
+router.get('/test-stream/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id)
+    const asset = await getAssetById(id)
+
+    if (!asset) {
+      return res.status(404).json({ success: false, error: 'Asset not found' })
+    }
+
+    // Get the file from storage
+    const { downloadFile } = await import('../services/storage')
+    const fileStream = await downloadFile(asset.storage_path)
+
+    if (!fileStream) {
+      return res.status(404).json({ success: false, error: 'File not found in storage' })
+    }
+
+    // Set appropriate headers for streaming
+    res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
+    res.setHeader('Accept-Ranges', 'bytes')
+    res.setHeader('Content-Length', asset.file_size)
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Ranges')
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
+
+    // Stream the entire file
+    fileStream.pipe(res)
+  } catch (error) {
+    console.error('Error testing stream:', error)
+    res.status(500).json({ success: false, error: 'Failed to test stream' })
+  }
+})
+
 // Get all assets with pagination and filters
 router.get(
   '/',
@@ -274,8 +309,6 @@ router.post('/upload', upload.any(), async (req, res) => {
       })
     }
 
-    // Rename functionality removed - only skip and replace are supported
-
     // Optional metadata from fields (applied to all)
     const baseMetadata = {
       category: (req.body.category as string) || 'upload',
@@ -287,84 +320,66 @@ router.post('/upload', upload.any(), async (req, res) => {
       skipDuplicates: duplicateOptions.duplicateAction === 'skip',
     })
 
+    // Set headers for streaming response
+    res.setHeader('Content-Type', 'application/json')
+    res.setHeader('Transfer-Encoding', 'chunked')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+
+    // Start response immediately
+    res.write('{"success":true,"message":"Upload started","files":[')
+
     const results = []
     const skipped = []
     const replaced = []
     const uploaded = []
+    let isFirstFile = true
 
-    for (const file of files) {
+    // Process files sequentially for better memory management and smoother progress
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+
       try {
-        // Check for duplicates first
-        const { checkForDuplicates } = await import(
-          '../services/duplicate.service'
-        )
-        const duplicateResult = await checkForDuplicates(
-          file.originalname || 'unknown',
-          file.buffer,
-          file.originalname
-        )
+        // Send progress update for each file
+        if (!isFirstFile) {
+          res.write(',')
+        }
+        isFirstFile = false
 
-        if (duplicateResult.isDuplicate) {
-          // Handle duplicate based on user preference
-          if (duplicateOptions.duplicateAction === 'skip') {
-            skipped.push({
-              filename: file.originalname,
-              reason: `Skipped duplicate: ${duplicateResult.duplicateType}`,
-            })
-          } else if (duplicateOptions.duplicateAction === 'rename') {
-            // Rename functionality removed - only skip and replace are supported
-            skipped.push({
-              filename: file.originalname,
-              reason:
-                'Rename functionality is not supported. Use "skip" or "replace" instead.',
-            })
-          } else if (
-            duplicateOptions.duplicateAction === 'replace' &&
-            duplicateOptions.replaceAssetId
-          ) {
-            // For replace, we need to delete the old asset first, then upload new one
-            const assetToReplace = duplicateResult.existingAssets.find(
-              (asset) => asset.id === duplicateOptions.replaceAssetId
-            )
+        // Process file
+        const result = await uploadAssetFile(file, baseMetadata)
 
-            if (assetToReplace) {
-              // Delete old asset
-              const { deleteAsset } = await import('../services/asset.service')
-              await deleteAsset(assetToReplace.id)
-
-              // Upload new asset
-              const result = await uploadAssetFile(file, {
-                ...baseMetadata,
-                replacedFrom: assetToReplace.filename,
-                replacedAt: new Date().toISOString(),
-              })
-
-              replaced.push({
-                filename: file.originalname,
-                message: `Replaced asset ID: ${assetToReplace.id}`,
-              })
-              results.push(result.asset)
-            } else {
-              skipped.push({
-                filename: file.originalname,
-                reason: 'Asset to replace not found',
-              })
-            }
-          } else {
-            // Default to error - skip the file
-            skipped.push({
-              filename: file.originalname,
-              reason: `Duplicate detected: ${duplicateResult.duplicateType}. Use duplicateAction to specify how to handle.`,
-            })
-          }
+        if (result.skipped) {
+          skipped.push({
+            filename: file.originalname,
+            reason: result.message,
+          })
+          res.write(
+            `{"status":"skipped","filename":"${file.originalname}","reason":"${result.message}"}`
+          )
+        } else if (result.replaced) {
+          replaced.push({
+            filename: file.originalname,
+            message: result.message,
+          })
+          results.push(result.asset)
+          res.write(
+            `{"status":"replaced","filename":"${file.originalname}","message":"${result.message}"}`
+          )
         } else {
-          // No duplicate, proceed with normal upload
-          const result = await uploadAssetFile(file, baseMetadata)
           uploaded.push({
             filename: file.originalname,
             message: result.message,
           })
           results.push(result.asset)
+          res.write(
+            `{"status":"uploaded","filename":"${file.originalname}","message":"${result.message}"}`
+          )
+        }
+
+        // Flush response to show progress
+        if (res.flush) {
+          res.flush()
         }
       } catch (error) {
         console.error(`Error processing file ${file.originalname}:`, error)
@@ -372,9 +387,18 @@ router.post('/upload', upload.any(), async (req, res) => {
           filename: file.originalname,
           reason: error instanceof Error ? error.message : 'Unknown error',
         })
+
+        if (!isFirstFile) {
+          res.write(',')
+        }
+        isFirstFile = false
+        res.write(
+          `{"status":"error","filename":"${file.originalname}","error":"${error instanceof Error ? error.message : 'Unknown error'}"}`
+        )
       }
     }
 
+    // Close the response
     let message = ''
     if (uploaded.length > 0) {
       message += `Uploaded: ${uploaded.length} new files. `
@@ -386,30 +410,10 @@ router.post('/upload', upload.any(), async (req, res) => {
       message += `Skipped: ${skipped.length} files. `
     }
 
-    if (results.length === 1) {
-      return res.status(201).json({
-        success: true,
-        data: results[0],
-        message: message.trim(),
-        summary: {
-          uploaded: uploaded.length,
-          replaced: replaced.length,
-          skipped: skipped.length,
-        },
-      })
-    }
+    const finalResponse = `],"summary":{"uploaded":${uploaded.length},"replaced":${replaced.length},"skipped":${skipped.length},"total":${files.length}},"message":"${message.trim()}"}`
 
-    return res.status(201).json({
-      success: true,
-      count: results.length,
-      data: results,
-      message: message.trim(),
-      summary: {
-        uploaded: uploaded.length,
-        replaced: replaced.length,
-        skipped: skipped.length,
-      },
-    })
+    res.write(finalResponse)
+    res.end()
   } catch (error) {
     console.error(`Error uploading file(s):`, error)
     res.status(500).json({ success: false, error: 'Failed to upload file(s)' })
@@ -552,26 +556,44 @@ router.get('/:id/download', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Asset not found' })
     }
 
+    console.log(`[DEBUG] Download request for asset ${id}:`, {
+      id: asset.id,
+      filename: asset.filename,
+      storage_path: asset.storage_path,
+      file_size: asset.file_size,
+      mime_type: asset.mime_type
+    })
+
     // Get the file from storage
     const { downloadFile } = await import('../services/storage')
     const fileStream = await downloadFile(asset.storage_path)
 
     if (!fileStream) {
-      return res.status(404).json({ success: false, error: 'File not found in storage' })
+      console.error(`[DEBUG] File stream is null for storage path: ${asset.storage_path}`)
+      return res
+        .status(404)
+        .json({ success: false, error: 'File not found in storage' })
     }
+
+    console.log(`[DEBUG] File stream created successfully for: ${asset.storage_path}`)
 
     // Set appropriate headers for download
     res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
-    res.setHeader('Content-Disposition', `attachment; filename="${asset.original_name || asset.filename}"`)
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${asset.original_name || asset.filename}"`
+    )
     res.setHeader('Content-Length', asset.file_size)
 
     // Track download for analytics
     try {
-      const { trackAssetDownload } = await import('../services/redis-analytics.service')
+      const { trackAssetDownload } = await import(
+        '../services/redis-analytics.service'
+      )
       await trackAssetDownload(id, 'anonymous', {
         userAgent: req.get('User-Agent'),
         ip: req.ip,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       })
     } catch (trackError) {
       console.warn('Failed to track download:', trackError)
@@ -596,18 +618,35 @@ router.get('/:id/stream', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Asset not found' })
     }
 
+    console.log(`[DEBUG] Stream request for asset ${id}:`, {
+      id: asset.id,
+      filename: asset.filename,
+      storage_path: asset.storage_path,
+      file_size: asset.file_size,
+      mime_type: asset.mime_type
+    })
+
     // Get the file from storage
     const { downloadFile } = await import('../services/storage')
     const fileStream = await downloadFile(asset.storage_path)
 
     if (!fileStream) {
-      return res.status(404).json({ success: false, error: 'File not found in storage' })
+      console.error(`[DEBUG] File stream is null for storage path: ${asset.storage_path}`)
+      return res
+        .status(404)
+        .json({ success: false, error: 'File not found in storage' })
     }
+
+    console.log(`[DEBUG] File stream created successfully for: ${asset.storage_path}`)
 
     // Set appropriate headers for streaming
     res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
     res.setHeader('Accept-Ranges', 'bytes')
     res.setHeader('Content-Length', asset.file_size)
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Ranges')
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
 
     // Handle range requests for video/audio streaming
     const range = req.headers.range
@@ -615,25 +654,25 @@ router.get('/:id/stream', async (req, res) => {
       const parts = range.replace(/bytes=/, '').split('-')
       const start = parseInt(parts[0], 10)
       const end = parts[1] ? parseInt(parts[1], 10) : asset.file_size - 1
-      const chunksize = (end - start) + 1
+      const chunksize = end - start + 1
+
+      // Validate range
+      if (start >= asset.file_size || end >= asset.file_size) {
+        res.status(416).json({ 
+          success: false, 
+          error: 'Range not satisfiable',
+          contentLength: asset.file_size
+        })
+        return
+      }
 
       res.status(206)
       res.setHeader('Content-Range', `bytes ${start}-${end}/${asset.file_size}`)
       res.setHeader('Content-Length', chunksize)
 
-      // Create a readable stream for the range
-      const { Readable } = await import('stream')
-      const rangeStream = new Readable()
-      rangeStream._read = () => {}
-      
-      fileStream.on('data', (chunk) => {
-        rangeStream.push(chunk)
-      })
-      fileStream.on('end', () => {
-        rangeStream.push(null)
-      })
-      
-      rangeStream.pipe(res)
+      // For now, just pipe the entire file for range requests
+      // This can be optimized later with proper range handling
+      fileStream.pipe(res)
     } else {
       // Stream the entire file
       fileStream.pipe(res)
@@ -641,12 +680,14 @@ router.get('/:id/stream', async (req, res) => {
 
     // Track view for analytics
     try {
-      const { trackAssetView } = await import('../services/redis-analytics.service')
+      const { trackAssetView } = await import(
+        '../services/redis-analytics.service'
+      )
       await trackAssetView(id, 'anonymous', {
         userAgent: req.get('User-Agent'),
         ip: req.ip,
         timestamp: new Date().toISOString(),
-        action: 'stream'
+        action: 'stream',
       })
     } catch (trackError) {
       console.warn('Failed to track stream view:', trackError)

@@ -1,6 +1,9 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { Pool } from 'pg'
+import fs from 'fs'
+import path from 'path'
+import crypto from 'crypto'
 import {
   createAsset,
   getAssetById,
@@ -21,62 +24,10 @@ import { asyncHandler } from '../middleware/asyncHandler'
 import { createJob } from '../services/job.service'
 import { getPool } from '../config/database.config'
 import { formatFileSize } from '../utils/fileTypeUtils'
-import {
-  validateUploadRequest,
-  validateBatchUpload,
-  validateUploadOptions,
-  validateUploadMetadata,
-} from '../validation'
+// Upload validation moved to dedicated upload routes
 
 const router = Router()
 const pool: Pool = getPool()
-
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB default
-  },
-  fileFilter: (req, file, cb) => {
-    // Allow all file types for now, you can add validation here
-    cb(null, true)
-  },
-})
-
-// Test streaming endpoint
-router.get('/test-stream/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id)
-    const asset = await getAssetById(id)
-
-    if (!asset) {
-      return res.status(404).json({ success: false, error: 'Asset not found' })
-    }
-
-    // Get the file from storage
-    const { downloadFile } = await import('../services/storage')
-    const fileStream = await downloadFile(asset.storage_path)
-
-    if (!fileStream) {
-      return res.status(404).json({ success: false, error: 'File not found in storage' })
-    }
-
-    // Set appropriate headers for streaming
-    res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
-    res.setHeader('Accept-Ranges', 'bytes')
-    res.setHeader('Content-Length', asset.file_size)
-    res.setHeader('Cache-Control', 'public, max-age=3600')
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Ranges')
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
-
-    // Stream the entire file
-    fileStream.pipe(res)
-  } catch (error) {
-    console.error('Error testing stream:', error)
-    res.status(500).json({ success: false, error: 'Failed to test stream' })
-  }
-})
 
 // Get all assets with pagination and filters
 router.get(
@@ -100,10 +51,8 @@ router.get(
       expiresIn = 3600,
     } = req.query
 
-    // Parse array parameters
     const tagsArray = tags ? (Array.isArray(tags) ? tags : [tags]) : undefined
 
-    // Get assets with filters
     const result = await getAssetsWithFilters({
       page: parseInt(page),
       limit: parseInt(limit),
@@ -120,7 +69,6 @@ router.get(
       sortOrder,
     })
 
-    // Include signed URLs if requested
     let assets = result.assets
     if (includeSignedUrls === 'true') {
       const assetIds = assets.map((asset) => asset.id)
@@ -171,7 +119,6 @@ router.get(
       })
     }
 
-    // Search assets
     const result = await searchAssets({
       query: query.toString(),
       page: parseInt(page),
@@ -182,7 +129,6 @@ router.get(
       sortOrder,
     })
 
-    // Include signed URLs if requested
     let assets = result.assets
     if (includeSignedUrls === 'true') {
       const assetIds = assets.map((asset) => asset.id)
@@ -235,6 +181,271 @@ router.post(
   })
 )
 
+// Use centralized Multer configuration from upload middleware
+import { uploadAny, handleUploadErrors } from '../middleware/upload.middleware'
+
+// Main upload route using Multer with better error handling
+router.post(
+  '/upload',
+  uploadAny,
+  handleUploadErrors,
+  async (req: any, res: any, next: any) => {
+    // Set response timeout to 1 hour for large files
+    res.setTimeout(3600000, () => {
+      console.error('Upload response timeout after 1 hour')
+      if (!res.headersSent) {
+        res.status(408).json({
+          success: false,
+          error: 'Upload timeout - file too large or connection too slow',
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          method: req.method,
+          help: 'Try uploading smaller files or check your internet connection',
+        })
+      }
+    })
+
+    // Set request timeout to 1 hour
+    req.setTimeout(3600000, () => {
+      console.error('Upload request timeout after 1 hour')
+      if (!res.headersSent) {
+        res.status(408).json({
+          success: false,
+          error: 'Request timeout - connection too slow',
+          timestamp: new Date().toISOString(),
+          path: req.path,
+          method: req.method,
+          help: 'Check your internet connection and try again',
+        })
+      }
+    })
+
+    // Disable response timeout for streaming
+    res.set('Connection', 'keep-alive')
+    res.set('Keep-Alive', 'timeout=3600')
+
+    // Check if this is a multipart request
+    const contentType = req.headers['content-type'] || ''
+    if (!contentType.includes('multipart/form-data')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Content-Type must be multipart/form-data',
+        timestamp: new Date().toISOString(),
+        path: req.path,
+        method: req.method,
+        help: 'Make sure to use form-data in Postman and remove any Content-Type header',
+      })
+    }
+
+    // Check if boundary is present
+    if (!contentType.includes('boundary=')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Multipart boundary is missing',
+        timestamp: new Date().toISOString(),
+        path: req.path,
+        method: req.method,
+        help: 'In Postman: 1) Use form-data body type, 2) Remove Content-Type header, 3) Let Postman set headers automatically',
+      })
+    }
+
+    console.log('Starting large file upload with extended timeouts...')
+
+    // Check if files were uploaded
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No files provided for upload',
+        timestamp: new Date().toISOString(),
+        path: req.path,
+        method: req.method,
+        help: 'Make sure to include files in your form-data request',
+      })
+    }
+
+    // Set up upload timeout
+    const uploadTimeout = setTimeout(() => {
+      console.error('Upload processing timeout after 5 minutes')
+      if (!res.headersSent) {
+        res.status(408).json({
+          success: false,
+          error:
+            'Upload processing timeout - file too large or processing too slow',
+          timestamp: new Date().toISOString(),
+          requestId: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+          help: 'Try uploading a smaller file or contact support if the issue persists',
+        })
+      }
+    }, 300000) // 5 minutes timeout
+
+    try {
+      const requestId =
+        Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+
+      console.log('UPLOAD ROUTE - Starting Multer upload:', {
+        requestId,
+        timestamp: new Date().toISOString(),
+        files: req.files?.length || 0,
+        contentType: req.headers['content-type'],
+      })
+
+      if (!req.files || req.files.length === 0) {
+        clearTimeout(uploadTimeout)
+        return res.status(400).json({
+          success: false,
+          error: 'No files were uploaded',
+          timestamp: new Date().toISOString(),
+          requestId,
+        })
+      }
+
+      const uploadedFiles: any[] = []
+      const errors: any[] = []
+
+      // Process each uploaded file
+      const files = Array.isArray(req.files)
+        ? req.files
+        : Object.values(req.files || {})
+      for (const file of files) {
+        try {
+          // Type guard to ensure file is a single file, not an array
+          if (Array.isArray(file)) {
+            console.log('Skipping array file, expected single file')
+            continue
+          }
+
+          console.log(
+            `Processing file: ${file.originalname} (${(file.size / 1024 / 1024).toFixed(2)} MB)`
+          )
+
+          // Calculate SHA256 hash
+          const fileBuffer = fs.readFileSync(file.path)
+          const sha256 = crypto
+            .createHash('sha256')
+            .update(fileBuffer)
+            .digest('hex')
+
+          // Create file object for processing
+          const fileObj = {
+            fieldname: file.fieldname,
+            originalname: file.originalname,
+            encoding: file.encoding,
+            mimetype: file.mimetype,
+            size: file.size,
+            path: file.path,
+            sha256,
+            timestamp: Date.now(),
+          }
+
+          // Process the uploaded file
+          console.log('Processing uploaded file...')
+          const startTime = Date.now()
+
+          const result = await uploadAssetFile(fileObj, {
+            category: 'upload',
+            description: 'Uploaded via API',
+          })
+
+          const processingTime = Date.now() - startTime
+          console.log(`File processing completed in ${processingTime}ms`)
+
+          if (result.success) {
+            uploadedFiles.push({
+              filename: fileObj.originalname,
+              assetId: result.assetId,
+              message: result.message,
+              size: fileObj.size,
+              sha256: fileObj.sha256,
+            })
+            console.log(`File ${fileObj.originalname} processed successfully`)
+          } else {
+            errors.push({
+              filename: fileObj.originalname,
+              error: result.message,
+            })
+            console.log(
+              `File ${fileObj.originalname} processing failed: ${result.message}`
+            )
+          }
+        } catch (error) {
+          console.error('File processing error:', error)
+          // Type guard to ensure file is a single file, not an array
+          if (!Array.isArray(file)) {
+            errors.push({
+              filename: file.originalname,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            })
+          }
+        }
+      }
+
+      // Clear timeout since we're about to send response
+      clearTimeout(uploadTimeout)
+
+      // Send response
+      const response = {
+        success: true,
+        message: 'Upload completed',
+        requestId,
+        summary: {
+          uploaded: uploadedFiles.length,
+          errors: errors.length,
+          total: req.files.length,
+        },
+        uploaded: uploadedFiles,
+        errors: errors,
+        processingTime: Date.now() - parseInt(requestId.split('-')[0]),
+      }
+
+      console.log('Upload completed successfully:', response.summary)
+      res.json(response)
+    } catch (error) {
+      // Clear timeout on error
+      clearTimeout(uploadTimeout)
+
+      console.error('Upload processing error:', error)
+      res.status(500).json({
+        success: false,
+        error:
+          error instanceof Error ? error.message : 'Upload processing failed',
+        timestamp: new Date().toISOString(),
+        requestId: Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+      })
+    }
+  }
+) // Close the upload route
+
+// Debug route to check Multer configuration
+router.get('/debug-config', (req: any, res: any) => {
+  res.json({
+    success: true,
+    message: 'Multer upload configuration debug info',
+    config: {
+      name: 'Multer Upload - Simple and Reliable',
+      limits: 'Unlimited file sizes with optimized limits',
+      storage: 'Disk storage, then to S3',
+      notes: [
+        'Multer properly configured for unlimited file uploads',
+        'Files are stored to disk first, then processed to S3',
+        'SHA256 checksums are calculated during processing',
+        'Simple and reliable file handling',
+        'Support for up to 100 files per request',
+        'No file size limits - truly unlimited uploads',
+        'Accepts all file types',
+        'Clean error handling and logging',
+      ],
+      multerConfig: {
+        fileSize: 'Infinity (no file size limit)',
+        files: '100 (max files per request)',
+        fieldSize: 'Infinity (no field size limit)',
+        fields: 'Infinity (no field count limit)',
+        storage: 'Disk storage with timestamped filenames',
+      },
+      timestamp: new Date().toISOString(),
+    },
+  })
+})
+
 // Get asset by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -256,7 +467,7 @@ router.get('/:id', async (req, res) => {
 router.get('/:id/access', async (req, res) => {
   try {
     const id = parseInt(req.params.id)
-    const expiresIn = parseInt(req.query.expiresIn as string) || 3600 // Default 1 hour
+    const expiresIn = parseInt(req.query.expiresIn as string) || 3600
 
     const asset = await getAssetWithSignedUrl(id, expiresIn)
 
@@ -274,233 +485,6 @@ router.get('/:id/access', async (req, res) => {
     res
       .status(500)
       .json({ success: false, error: 'Failed to get asset access URL' })
-  }
-})
-
-// Upload one or many files and create assets
-// Accepts: form-data with keys 'file' (single) or 'files' (multiple), or multiple 'file' entries
-// Optional body parameters for duplicate handling:
-// - duplicateAction: 'skip' | 'replace' | 'error'
-// - replaceAssetId: ID of asset to replace (required if duplicateAction is 'replace')
-router.post('/upload', upload.any(), async (req, res) => {
-  const requestId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-
-  try {
-    const files = (req.files as Express.Multer.File[]) || []
-
-    // Parse duplicate handling options from request body
-    const duplicateOptions = {
-      duplicateAction: req.body.duplicateAction || 'error',
-      replaceAssetId: req.body.replaceAssetId
-        ? parseInt(req.body.replaceAssetId)
-        : undefined,
-    }
-
-    validateUploadRequest(files)
-
-    // Validate duplicate handling options
-    if (
-      duplicateOptions.duplicateAction === 'replace' &&
-      !duplicateOptions.replaceAssetId
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: 'replaceAssetId is required when duplicateAction is "replace"',
-      })
-    }
-
-    // Optional metadata from fields (applied to all)
-    const baseMetadata = {
-      category: (req.body.category as string) || 'upload',
-      description: (req.body.description as string) || 'Uploaded via API',
-    }
-
-    validateUploadMetadata(baseMetadata)
-    validateBatchUpload(files, {
-      skipDuplicates: duplicateOptions.duplicateAction === 'skip',
-    })
-
-    // Set headers for streaming response
-    res.setHeader('Content-Type', 'application/json')
-    res.setHeader('Transfer-Encoding', 'chunked')
-    res.setHeader('Cache-Control', 'no-cache')
-    res.setHeader('Connection', 'keep-alive')
-
-    // Start response immediately
-    res.write('{"success":true,"message":"Upload started","files":[')
-
-    const results = []
-    const skipped = []
-    const replaced = []
-    const uploaded = []
-    let isFirstFile = true
-
-    // Process files sequentially for better memory management and smoother progress
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-
-      try {
-        // Send progress update for each file
-        if (!isFirstFile) {
-          res.write(',')
-        }
-        isFirstFile = false
-
-        // Process file
-        const result = await uploadAssetFile(file, baseMetadata)
-
-        if (result.skipped) {
-          skipped.push({
-            filename: file.originalname,
-            reason: result.message,
-          })
-          res.write(
-            `{"status":"skipped","filename":"${file.originalname}","reason":"${result.message}"}`
-          )
-        } else if (result.replaced) {
-          replaced.push({
-            filename: file.originalname,
-            message: result.message,
-          })
-          results.push(result.asset)
-          res.write(
-            `{"status":"replaced","filename":"${file.originalname}","message":"${result.message}"}`
-          )
-        } else {
-          uploaded.push({
-            filename: file.originalname,
-            message: result.message,
-          })
-          results.push(result.asset)
-          res.write(
-            `{"status":"uploaded","filename":"${file.originalname}","message":"${result.message}"}`
-          )
-        }
-
-        // Flush response to show progress
-        if (res.flush) {
-          res.flush()
-        }
-      } catch (error) {
-        console.error(`Error processing file ${file.originalname}:`, error)
-        skipped.push({
-          filename: file.originalname,
-          reason: error instanceof Error ? error.message : 'Unknown error',
-        })
-
-        if (!isFirstFile) {
-          res.write(',')
-        }
-        isFirstFile = false
-        res.write(
-          `{"status":"error","filename":"${file.originalname}","error":"${error instanceof Error ? error.message : 'Unknown error'}"}`
-        )
-      }
-    }
-
-    // Close the response
-    let message = ''
-    if (uploaded.length > 0) {
-      message += `Uploaded: ${uploaded.length} new files. `
-    }
-    if (replaced.length > 0) {
-      message += `Replaced: ${replaced.length} duplicate files. `
-    }
-    if (skipped.length > 0) {
-      message += `Skipped: ${skipped.length} files. `
-    }
-
-    const finalResponse = `],"summary":{"uploaded":${uploaded.length},"replaced":${replaced.length},"skipped":${skipped.length},"total":${files.length}},"message":"${message.trim()}"}`
-
-    res.write(finalResponse)
-    res.end()
-  } catch (error) {
-    console.error(`Error uploading file(s):`, error)
-    res.status(500).json({ success: false, error: 'Failed to upload file(s)' })
-  }
-})
-
-// Check for duplicate files before upload
-router.post('/check-duplicates-simple', async (req, res) => {
-  try {
-    const { filename, fileSize, contentHash } = req.body
-
-    if (!filename) {
-      return res.status(400).json({
-        success: false,
-        error: 'filename is required',
-      })
-    }
-
-    // Check for duplicates by filename
-    const filenameQuery = `
-      SELECT id, filename, original_name, file_size, created_at, metadata 
-      FROM assets 
-      WHERE filename = $1 AND deleted_at IS NULL
-      ORDER BY created_at DESC
-    `
-    const filenameResult = await pool.query(filenameQuery, [filename])
-
-    // Check for duplicates by content hash if provided
-    let contentResult = { rows: [] }
-    if (contentHash) {
-      const contentQuery = `
-        SELECT id, filename, original_name, file_size, created_at, metadata 
-        FROM assets 
-        WHERE metadata->>'contentHash' = $1 AND deleted_at IS NULL
-        ORDER BY created_at DESC
-      `
-      contentResult = await pool.query(contentQuery, [contentHash])
-    }
-
-    // Check for duplicates by file size if provided
-    let sizeResult = { rows: [] }
-    if (fileSize) {
-      const sizeQuery = `
-        SELECT id, filename, original_name, file_size, created_at, metadata 
-        FROM assets 
-        WHERE file_size = $1 AND deleted_at IS NULL
-        ORDER BY created_at DESC
-      `
-      sizeResult = await pool.query(sizeQuery, [fileSize])
-    }
-
-    // Combine and deduplicate results
-    const allResults = [
-      ...filenameResult.rows,
-      ...contentResult.rows,
-      ...sizeResult.rows,
-    ]
-    const uniqueResults = allResults.filter(
-      (asset, index, self) => index === self.findIndex((a) => a.id === asset.id)
-    )
-
-    const duplicates = uniqueResults.map((asset) => ({
-      id: asset.id,
-      filename: asset.filename,
-      original_name: asset.original_name,
-      file_size: asset.file_size,
-      created_at: asset.created_at,
-      duplicateType:
-        contentHash && asset.metadata?.contentHash === contentHash
-          ? 'content'
-          : filename === asset.filename
-            ? 'filename'
-            : 'size',
-    }))
-
-    res.json({
-      success: true,
-      hasDuplicates: duplicates.length > 0,
-      duplicates: duplicates,
-      count: duplicates.length,
-    })
-  } catch (error) {
-    console.error('Error checking for duplicates:', error)
-    res.status(500).json({
-      success: false,
-      error: 'Failed to check for duplicates',
-    })
   }
 })
 
@@ -556,28 +540,15 @@ router.get('/:id/download', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Asset not found' })
     }
 
-    console.log(`[DEBUG] Download request for asset ${id}:`, {
-      id: asset.id,
-      filename: asset.filename,
-      storage_path: asset.storage_path,
-      file_size: asset.file_size,
-      mime_type: asset.mime_type
-    })
-
-    // Get the file from storage
     const { downloadFile } = await import('../services/storage')
     const fileStream = await downloadFile(asset.storage_path)
 
     if (!fileStream) {
-      console.error(`[DEBUG] File stream is null for storage path: ${asset.storage_path}`)
       return res
         .status(404)
         .json({ success: false, error: 'File not found in storage' })
     }
 
-    console.log(`[DEBUG] File stream created successfully for: ${asset.storage_path}`)
-
-    // Set appropriate headers for download
     res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
     res.setHeader(
       'Content-Disposition',
@@ -585,22 +556,6 @@ router.get('/:id/download', async (req, res) => {
     )
     res.setHeader('Content-Length', asset.file_size)
 
-    // Track download for analytics
-    try {
-      const { trackAssetDownload } = await import(
-        '../services/redis-analytics.service'
-      )
-      await trackAssetDownload(id, 'anonymous', {
-        userAgent: req.get('User-Agent'),
-        ip: req.ip,
-        timestamp: new Date().toISOString(),
-      })
-    } catch (trackError) {
-      console.warn('Failed to track download:', trackError)
-      // Don't fail the download if tracking fails
-    }
-
-    // Pipe the file stream to response
     fileStream.pipe(res)
   } catch (error) {
     console.error('Error downloading asset:', error)
@@ -618,81 +573,21 @@ router.get('/:id/stream', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Asset not found' })
     }
 
-    console.log(`[DEBUG] Stream request for asset ${id}:`, {
-      id: asset.id,
-      filename: asset.filename,
-      storage_path: asset.storage_path,
-      file_size: asset.file_size,
-      mime_type: asset.mime_type
-    })
-
-    // Get the file from storage
     const { downloadFile } = await import('../services/storage')
     const fileStream = await downloadFile(asset.storage_path)
 
     if (!fileStream) {
-      console.error(`[DEBUG] File stream is null for storage path: ${asset.storage_path}`)
       return res
         .status(404)
         .json({ success: false, error: 'File not found in storage' })
     }
 
-    console.log(`[DEBUG] File stream created successfully for: ${asset.storage_path}`)
-
-    // Set appropriate headers for streaming
     res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
     res.setHeader('Accept-Ranges', 'bytes')
     res.setHeader('Content-Length', asset.file_size)
     res.setHeader('Cache-Control', 'public, max-age=3600')
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Ranges')
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
 
-    // Handle range requests for video/audio streaming
-    const range = req.headers.range
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-')
-      const start = parseInt(parts[0], 10)
-      const end = parts[1] ? parseInt(parts[1], 10) : asset.file_size - 1
-      const chunksize = end - start + 1
-
-      // Validate range
-      if (start >= asset.file_size || end >= asset.file_size) {
-        res.status(416).json({ 
-          success: false, 
-          error: 'Range not satisfiable',
-          contentLength: asset.file_size
-        })
-        return
-      }
-
-      res.status(206)
-      res.setHeader('Content-Range', `bytes ${start}-${end}/${asset.file_size}`)
-      res.setHeader('Content-Length', chunksize)
-
-      // For now, just pipe the entire file for range requests
-      // This can be optimized later with proper range handling
-      fileStream.pipe(res)
-    } else {
-      // Stream the entire file
-      fileStream.pipe(res)
-    }
-
-    // Track view for analytics
-    try {
-      const { trackAssetView } = await import(
-        '../services/redis-analytics.service'
-      )
-      await trackAssetView(id, 'anonymous', {
-        userAgent: req.get('User-Agent'),
-        ip: req.ip,
-        timestamp: new Date().toISOString(),
-        action: 'stream',
-      })
-    } catch (trackError) {
-      console.warn('Failed to track stream view:', trackError)
-      // Don't fail the stream if tracking fails
-    }
+    fileStream.pipe(res)
   } catch (error) {
     console.error('Error streaming asset:', error)
     res.status(500).json({ success: false, error: 'Failed to stream asset' })

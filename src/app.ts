@@ -2,186 +2,136 @@ import express from 'express'
 import dotenv from 'dotenv'
 import cors from 'cors'
 
-// Import routes
+// Import route files
 import assetsRoutes from './routes/assets.routes'
 import jobsRoutes from './routes/jobs.routes'
+import statsRoutes from './routes/stats.routes'
 import queuesRoutes from './routes/queues.routes'
 import videoRoutes from './routes/video.routes'
-import statsRoutes from './routes/stats.routes'
-
-// Import middleware
-import { errorHandler } from './middleware/errorHandler'
 
 dotenv.config()
 
 const app = express()
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 5000
 
-// Middleware
-app.use(cors({
-  origin: true, // Allow all origins in development
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept-Ranges'],
-  exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length']
-}))
-app.use(express.json({ limit: '10mb' }))
-app.use(express.urlencoded({ extended: true, limit: '10mb' }))
-
-// Health check endpoint
-app.get('/health', async (req, res) => {
-  try {
-    // Test database connection
-    const { testConnection } = await import('./config/database.config')
-    const dbConnected = await testConnection()
-
-    // Test Redis connection
-    const redisConnected = await testRedisConnection()
-
-    res.json({
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      message: 'DAM Backend API is running',
-      services: {
-        database: dbConnected ? 'connected' : 'disconnected',
-        redis: redisConnected ? 'connected' : 'disconnected',
-        server: 'running',
-        port: process.env.PORT || 3000,
-      },
-      environment: process.env.NODE_ENV || 'development',
-    })
-  } catch (error) {
-    res.status(500).json({
-      status: 'ERROR',
-      timestamp: new Date().toISOString(),
-      message: 'Health check failed',
-      error: error instanceof Error ? error.message : 'Unknown error',
-      services: {
-        database: 'error',
-        redis: 'error',
-        server: 'running',
-        port: process.env.PORT || 3000,
-      },
-    })
-  }
+// Configure server for large file uploads
+const server = app.listen(Number(PORT), () => {
+  console.log(`Server running on port ${PORT}`)
+  console.log(`Health check: http://localhost:${PORT}/health`)
+  console.log(`API Documentation: http://localhost:${PORT}/`)
+  console.log(`Accessible at: http://localhost:${PORT}`)
+  console.log(`Assets API: http://localhost:${PORT}/api/assets`)
+  console.log(`Jobs API: http://localhost:${PORT}/api/jobs`)
+  console.log(`Stats API: http://localhost:${PORT}/api/stats`)
+  console.log(`Queues API: http://localhost:${PORT}/api/queues`)
+  console.log(`Video API: http://localhost:${PORT}/api/video`)
+  console.log(`Large file uploads: ENABLED (unlimited size)`)
 })
 
-// Root endpoint with API documentation
+// Configure server timeouts for large uploads
+server.timeout = 0 // No timeout for large uploads
+server.keepAliveTimeout = 65000 // 65 seconds
+server.headersTimeout = 66000 // 66 seconds
+
+// Handle server errors
+server.on('error', (error) => {
+  console.error('Server error:', error)
+})
+
+// Handle connection errors
+server.on('connection', (socket) => {
+  // Set socket timeout to 0 for large uploads
+  socket.setTimeout(0)
+
+  socket.on('error', (error) => {
+    console.error('Socket error:', error)
+  })
+})
+
+// Middleware configuration
+app.use(cors())
+
+// Body parsing middleware - skip for upload routes
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/assets/upload')) {
+    return next()
+  }
+  next()
+})
+
+// Apply body parsing for non-upload routes
+app.use(express.json({ limit: '1gb' }))
+app.use(express.urlencoded({ extended: true, limit: '1gb' }))
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`)
+  next()
+})
+
+// Health check route
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    message: 'DAM Backend is running',
+    version: '1.0.0',
+  })
+})
+
+// Root route with API documentation
 app.get('/', (req, res) => {
   res.json({
     message: 'DAM Backend API',
     version: '1.0.0',
-    endpoints: {
+    status: 'running',
+    documentation: {
       health: '/health',
+      assets: '/api/assets',
+      jobs: '/api/jobs',
+      stats: '/api/stats',
+      queues: '/api/queues',
+      video: '/api/video',
+    },
+    features: [
+      'File upload and storage management',
+      'Asset metadata management',
+      'Duplicate file detection and handling',
+      'Background job processing',
+      'Video transcoding with FFmpeg',
+      'Image thumbnail generation',
+      'File format conversion',
+    ],
+    apiEndpoints: {
       assets: {
-        base: '/api/assets',
-        byId: '/api/assets/:id',
-        create: 'POST /api/assets',
-        update: 'PUT /api/assets/:id',
-        delete: 'DELETE /api/assets/:id',
-        upload: 'POST /api/assets/upload',
-        access: 'GET /api/assets/:id/access',
-        list: 'GET /api/assets?page&limit&fileType&status&dateFrom&dateTo&tags&category&author&department&project&sortBy&sortOrder&includeSignedUrls&expiresIn',
-        search:
-          'GET /api/assets/search?q&page&limit&fileType&status&sortBy&sortOrder&includeSignedUrls&expiresIn',
-        batchAccess: 'POST /api/assets/batch-access',
-        checkDuplicates: 'POST /api/assets/check-duplicates-simple',
+        'GET /api/assets': 'List all assets with filters and pagination',
+        'GET /api/assets/:id': 'Get asset by ID',
+        'POST /api/assets/upload': 'Upload files with duplicate detection',
+        'PUT /api/assets/:id': 'Update asset',
+        'DELETE /api/assets/:id': 'Delete asset',
+        'GET /api/assets/:id/download': 'Download asset',
+        'GET /api/assets/:id/stream': 'Stream asset for preview',
       },
       jobs: {
-        base: '/api/jobs',
-        byId: '/api/jobs/:id',
-        byAsset: '/api/jobs/asset/:assetId',
-        create: 'POST /api/jobs',
-        update: 'PUT /api/jobs/:id',
-        delete: 'DELETE /api/jobs/:id',
+        'GET /api/jobs': 'List all jobs',
+        'GET /api/jobs/:id': 'Get job by ID',
+        'POST /api/jobs': 'Create new job',
+        'PUT /api/jobs/:id': 'Update job',
+        'DELETE /api/jobs/:id': 'Delete job',
       },
       queues: {
-        base: '/api/queues',
-        stats: 'GET /api/queues/stats',
-        addJob: 'POST /api/queues/jobs',
-        addBatch: 'POST /api/queues/jobs/batch',
-        thumbnail: 'POST /api/queues/jobs/thumbnail',
-        metadata: 'POST /api/queues/jobs/metadata',
-        conversion: 'POST /api/queues/jobs/metadata',
-        cleanup: 'POST /api/queues/jobs/cleanup',
-        pause: 'POST /api/queues/pause',
-        resume: 'POST /api/queues/resume',
-        clear: 'DELETE /api/queues/clear?confirm=true',
-      },
-      video: {
-        base: '/api/video',
-        process: 'POST /api/video/process',
-        transcode: 'POST /api/video/transcode',
-        thumbnail: 'POST /api/video/thumbnail',
-        metadata: 'POST /api/video/metadata',
-        supportedFormats: 'GET /api/video/supported-formats',
-        health: 'GET /api/video/health',
-        jobs: 'GET /api/video/jobs/:assetId',
+        'GET /api/queues/stats': 'Get queue statistics',
+        'POST /api/queues/jobs': 'Add single processing job',
+        'POST /api/queues/jobs/batch': 'Add multiple processing jobs',
+        'POST /api/queues/jobs/thumbnail': 'Generate thumbnail',
+        'POST /api/queues/jobs/metadata': 'Extract metadata',
+        'POST /api/queues/jobs/conversion': 'Convert file format',
       },
       stats: {
-        base: '/api/stats',
-        dashboard: 'GET /api/stats',
-        uploads: 'GET /api/stats/uploads?period=month',
-        downloads: 'GET /api/stats/downloads?period=month',
-        latest: 'GET /api/stats/latest?limit=10',
-        popular: 'GET /api/stats/popular?limit=10',
-        assetAnalytics: 'GET /api/stats/asset/:assetId/analytics',
-        trackView: 'POST /api/stats/track-view',
-        trackDownload: 'POST /api/stats/track-download',
-        userBehavior: 'GET /api/stats/user/:userId/behavior',
-        realtime: 'GET /api/stats/realtime',
-      },
-    },
-    // Asset Retrieval API Documentation
-    assetRetrievalAPI: {
-      description:
-        'Enhanced asset retrieval with pagination, filtering, and search',
-      features: [
-        'Pagination support (page, limit)',
-        'Filtering by file type, status, date range, tags, category, author, department, project',
-        'Sorting by created_at, updated_at, filename, file_size',
-        'Keyword search across filename, tags, description, and metadata',
-        'Signed URL generation for direct asset access',
-        'Batch asset retrieval with signed URLs',
-        'Optimized database queries with proper indexing',
-      ],
-      examples: {
-        list: 'GET /api/assets?page=1&limit=20&fileType=image&status=processed&includeSignedUrls=true',
-        search: 'GET /api/assets/search?q=logo&fileType=image&page=1&limit=10',
-        filters:
-          'GET /api/assets?dateFrom=2024-01-01&dateTo=2024-12-31&tags=marketing&category=branding',
-      },
-    },
-    // Dashboard Analytics API Documentation
-    dashboardAnalyticsAPI: {
-      description:
-        'Dashboard analytics for uploads, downloads, and asset usage with Redis-powered real-time analytics',
-      features: [
-        'Download counts and trends',
-        'Upload counts and trends',
-        'Latest assets tracking',
-        'Popular assets ranking',
-        'Storage usage analytics',
-        'Activity monitoring',
-        'Period-based analytics (day, week, month, year)',
-        'Real-time asset usage analytics',
-        'Live view and download tracking',
-        'User behavior analysis and segmentation',
-        'Popular assets with popularity scoring',
-        'Real-time statistics and metrics',
-        'Performance monitoring and insights',
-      ],
-      examples: {
-        dashboard: 'GET /api/stats',
-        uploads: 'GET /api/stats/uploads?period=week',
-        downloads: 'GET /api/stats/downloads?period=month',
-        latest: 'GET /api/stats/latest?limit=20',
-        popular: 'GET /api/stats/popular?limit=15',
-        assetAnalytics: 'GET /api/stats/asset/71/analytics',
-        trackView: 'POST /api/stats/track-view',
-        trackDownload: 'POST /api/stats/track-download',
-        userBehavior: 'GET /api/stats/user/user123/behavior',
-        realtime: 'GET /api/stats/realtime',
+        'GET /api/stats': 'Get dashboard statistics',
+        'GET /api/stats/uploads': 'Get upload statistics',
+        'GET /api/stats/downloads': 'Get download statistics',
+        'GET /api/stats/latest': 'Get latest assets',
       },
     },
   })
@@ -190,164 +140,37 @@ app.get('/', (req, res) => {
 // API Routes
 app.use('/api/assets', assetsRoutes)
 app.use('/api/jobs', jobsRoutes)
+app.use('/api/stats', statsRoutes)
 app.use('/api/queues', queuesRoutes)
 app.use('/api/video', videoRoutes)
-app.use('/api/stats', statsRoutes)
-
-// Start background workers
-import {
-  thumbnailWorker,
-  metadataWorker,
-  conversionWorker,
-} from './workers/asset-processing.worker'
-
-// Import Redis analytics initialization
-import { initRedis, testRedisConnection } from './config/redis.config'
-import { initializeStatsService } from './services/stats.service'
-
-// Startup service check function (non-blocking)
-const checkServices = async () => {
-  try {
-    // Check database connection
-    const { testConnection } = await import('./config/database.config')
-    const dbConnected = await testConnection()
-    if (dbConnected) {
-      console.log('Database: Connected')
-    } else {
-      console.log('Database: Connection failed')
-    }
-  } catch (error) {
-    console.log(
-      'Database: Connection error -',
-      error instanceof Error ? error.message : 'Unknown error'
-    )
-  }
-
-  try {
-    // Check Redis connection
-    const redisConnected = await testRedisConnection()
-    if (redisConnected) {
-      console.log('Redis: Connected')
-    } else {
-      console.log('Redis: Connection failed')
-    }
-  } catch (error) {
-    console.log(
-      'Redis: Connection error -',
-      error instanceof Error ? error.message : 'Unknown error'
-    )
-  }
-
-  try {
-    // Check MinIO connection (optional)
-    const { getSignedReadUrl, ensureBucketExists } = await import('./services/storage')
-    await getSignedReadUrl('test', 1)
-    console.log('MinIO: Connected')
-    
-    // Ensure the required bucket exists
-    try {
-      await ensureBucketExists()
-      console.log('MinIO: Bucket ready')
-    } catch (bucketError) {
-      console.warn('MinIO: Bucket initialization failed -', bucketError)
-    }
-  } catch (error) {
-    console.log('MinIO: Not available (Docker may be down)')
-  }
-}
-
-// Wrap worker startup in try-catch to prevent crashes
-const startWorkers = async () => {
-  try {
-    console.log('Starting background workers...')
-
-    if (!thumbnailWorker.isRunning()) {
-      thumbnailWorker.run()
-      console.log('Thumbnail worker started')
-    }
-
-    if (!metadataWorker.isRunning()) {
-      metadataWorker.run()
-      console.log('Metadata worker started')
-    }
-
-    if (!conversionWorker.isRunning()) {
-      conversionWorker.run()
-      console.log('Conversion worker started')
-    }
-
-    console.log('All background workers started successfully!')
-  } catch (error) {
-    console.warn(
-      'Some background workers failed to start (Docker services may be unavailable):',
-      error
-    )
-    console.log('Server will continue running with limited functionality')
-  }
-}
-
-// Start services check and workers asynchronously
-checkServices().catch((error) => {
-  console.warn('Service check failed, but server will continue:', error)
-})
-
-// Initialize Redis and analytics services
-const initializeAnalytics = async () => {
-  try {
-    await initRedis()
-    await initializeStatsService()
-    console.log('Analytics services initialized successfully')
-  } catch (error) {
-    console.warn(
-      'Failed to initialize analytics services, continuing with fallback data:',
-      error
-    )
-  }
-}
-
-initializeAnalytics().catch((error) => {
-  console.warn(
-    'Analytics initialization failed, but server will continue:',
-    error
-  )
-})
-
-startWorkers().catch((error) => {
-  console.warn('Worker startup failed, but server will continue:', error)
-})
 
 // Error handling middleware
-app.use(errorHandler)
-
-// 404 handler
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    message: `Cannot ${req.method} ${req.originalUrl}`,
+    message: `The route ${req.method} ${req.path} does not exist`,
+    timestamp: new Date().toISOString(),
+    availableRoutes: [
+      '/health',
+      '/api/assets',
+      '/api/jobs',
+      '/api/stats',
+      '/api/queues',
+      '/api/video',
+    ],
   })
 })
 
-// Start server
-app.listen(PORT, () => {
-  console.log('Server running on port: http://localhost:3000')
-  console.log('API Documentation: http://localhost:3000/')
-  console.log('Health Check: http://localhost:3000/health')
-  console.log('')
-  console.log('Service Status:')
-  console.log('   • Server: Running')
-  console.log('   • Database: Checking...')
-  console.log('   • Redis: Checking...')
-  console.log('   • MinIO: Checking...')
-  console.log('   • Workers: Starting...')
-  console.log('')
-  console.log(
-    'Note: Server will run with limited functionality if Docker services are unavailable'
-  )
-  console.log(
-    'Start Docker services for full functionality (file uploads, processing, etc.)'
-  )
-  console.log('')
+// Global error handler
+app.use((error: any, req: any, res: any, next: any) => {
+  console.error('Global error handler:', error)
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error',
+    message: error.message || 'Something went wrong',
+    timestamp: new Date().toISOString(),
+  })
 })
 
 export default app

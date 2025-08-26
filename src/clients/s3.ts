@@ -11,6 +11,13 @@ const s3 = new S3Client({
     accessKeyId: process.env.MINIO_ACCESS_KEY || 'minioadmin',
     secretAccessKey: process.env.MINIO_SECRET_KEY || 'minioadmin123',
   },
+  // Add configuration for large file uploads
+  maxAttempts: 3, // Retry failed requests up to 3 times
+  requestHandler: {
+    // Increase timeout for large file operations
+    requestTimeout: 600000, // 10 minutes
+    connectionTimeout: 30000, // 30 seconds
+  },
 })
 
 export { s3 }

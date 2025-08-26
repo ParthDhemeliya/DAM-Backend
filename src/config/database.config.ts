@@ -55,7 +55,13 @@ pool.on('connect', (client) => {
 // Test database connection
 export const testConnection = async (): Promise<boolean> => {
   try {
-    const client = await pool.connect()
+    // Add timeout to prevent hanging
+    const connectPromise = pool.connect()
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Database connection timeout')), 10000)
+    })
+    
+    const client = await Promise.race([connectPromise, timeoutPromise])
     console.log('Database connection successful!')
     client.release()
     return true

@@ -1,3 +1,7 @@
+// 1. Upload file
+import fs from 'fs'
+import path from 'path'
+// import { uploadFile } from "./uploadFile"
 import {
   PutObjectCommand,
   GetObjectCommand,
@@ -36,31 +40,11 @@ export async function ensureBucketExists(): Promise<void> {
   }
 }
 
-// 1. Upload file
-export async function uploadFile(
-  key: string,
-  body: Buffer | Readable
-): Promise<{ bucket: string; key: string }> {
-  const contentType = mimeLookup(key) || 'application/octet-stream'
-
-  const uploader = new Upload({
-    client: s3,
-    params: {
-      Bucket: bucketName,
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-    },
-  })
-
-  await uploader.done()
-  return { bucket: bucketName, key }
-}
+// This function is now handled in asset.service.ts with the new uploadFile utility
+// Removed to avoid duplication and import conflicts
 
 // 2. Download file
-export async function downloadFile(
-  key: string
-): Promise<Readable> {
+export async function downloadFile(key: string): Promise<Readable> {
   const res = await s3.send(
     new GetObjectCommand({ Bucket: bucketName, Key: key })
   )

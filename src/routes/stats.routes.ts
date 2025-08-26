@@ -12,6 +12,8 @@ import {
   trackAssetDownload,
   getUserBehaviorAnalytics,
   getRealTimeStats,
+  getDailyStats,
+  getDateRangeStats,
 } from '../services/redis-analytics.service'
 
 const router = Router()
@@ -350,6 +352,118 @@ router.get(
       data: stats,
       message: 'Real-time statistics retrieved successfully',
       timestamp: new Date().toISOString(),
+      redisStatus: 'available',
+    })
+  })
+)
+
+// Get daily statistics for a specific date
+router.get(
+  '/daily/:date',
+  asyncHandler(async (req: any, res: any) => {
+    const { date } = req.params
+
+    // Validate date format (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+    if (!dateRegex.test(date)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date format. Use YYYY-MM-DD',
+      })
+    }
+
+    const stats = await getDailyStats(date)
+
+    if (!stats) {
+      return res.json({
+        success: true,
+        data: {
+          date,
+          views: 0,
+          downloads: 0,
+          uploads: 0,
+          note: 'No data available for this date',
+        },
+        message: 'Daily statistics retrieved (no data available)',
+        date,
+        redisStatus: 'unavailable',
+      })
+    }
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        ...stats,
+      },
+      message: 'Daily statistics retrieved successfully',
+      date,
+      redisStatus: 'available',
+    })
+  })
+)
+
+// Get statistics for a date range
+router.get(
+  '/range',
+  asyncHandler(async (req: any, res: any) => {
+    const { startDate, endDate } = req.query
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'Both startDate and endDate are required (YYYY-MM-DD format)',
+      })
+    }
+
+    // Validate date format (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+    if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date format. Use YYYY-MM-DD',
+      })
+    }
+
+    // Validate date range
+    if (new Date(startDate) > new Date(endDate)) {
+      return res.status(400).json({
+        success: false,
+        error: 'startDate must be before or equal to endDate',
+      })
+    }
+
+    const stats = await getDateRangeStats(startDate, endDate)
+
+    if (!stats) {
+      return res.json({
+        success: true,
+        data: {
+          startDate,
+          endDate,
+          views: 0,
+          downloads: 0,
+          uploads: 0,
+          dailyBreakdown: [],
+          note: 'No data available for this date range',
+        },
+        message: 'Date range statistics retrieved (no data available)',
+        startDate,
+        endDate,
+        redisStatus: 'unavailable',
+      })
+    }
+
+    res.json({
+      success: true,
+      data: {
+        startDate,
+        endDate,
+        ...stats,
+      },
+      message: 'Date range statistics retrieved successfully',
+      startDate,
+      endDate,
       redisStatus: 'available',
     })
   })

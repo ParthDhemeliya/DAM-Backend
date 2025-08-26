@@ -13,7 +13,8 @@ import {
   validateUploadOptions,
 } from '../validation'
 import { validateString } from '../middleware/validation'
-import { uploadFile, deleteFile, getSignedReadUrl, fileExists } from './storage'
+import { uploadFile } from '../utils/uploadFile'
+import { deleteFile, getSignedReadUrl, fileExists } from './storage'
 import {
   checkForDuplicates,
   handleDuplicateFile,
@@ -595,14 +596,26 @@ async function checkDuplicateFile(
 
 // Upload file to MinIO and create asset
 export const uploadAssetFile = async (
-  file: Express.Multer.File,
+  file: {
+    fieldname: string
+    originalname: string
+    encoding: string
+    mimetype: string
+    size: number
+    path: string
+    sha256: string
+    timestamp: number
+  },
   metadata?: any,
   options?: { skipDuplicates?: boolean; replaceDuplicates?: boolean }
 ): Promise<{
+  [x: string]: any
+  success: boolean
+  assetId?: number
+  message: string
   asset?: Asset
   skipped?: boolean
   replaced?: boolean
-  message: string
 }> => {
   const functionId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
 
@@ -634,13 +647,51 @@ export const uploadAssetFile = async (
     const timestamp = Date.now()
     const extension = path.extname(file.originalname)
     const filename = `${timestamp}-${file.originalname}`
-    const storagePath = `assets/${filename}`
+    let storagePath = `assets/${filename}`
 
-    // Upload file to storage first (this is the main bottleneck)
-    await uploadFile(storagePath, file.buffer)
+    // Handle file upload from disk path (Busboy streaming)
+    if (file.path) {
+      const fs = require('fs')
+      const path = require('path')
 
-    // Skip content hash generation for better performance
-    const contentHash = 'skipped-for-performance'
+      // Generate S3 key for the upload
+      const s3Key = `uploads/${timestamp}-${path.basename(file.originalname)}`
+
+      // Create file stream and upload directly to S3
+      const fileStream = fs.createReadStream(file.path)
+      console.log(`Streaming file to S3: ${file.path} -> ${s3Key}`)
+
+      const uploadStartTime = Date.now()
+
+      // Upload to S3 with streaming (no memory buffering)
+      const uploadResult = await uploadFile(s3Key, fileStream, file.mimetype, {
+        originalName: file.originalname,
+        fileSize: file.size.toString(),
+        uploadTimestamp: new Date().toISOString(),
+        contentHash: file.sha256,
+        uploadMethod: 'busboy-streaming',
+      })
+
+      const uploadTime = Date.now() - uploadStartTime
+      console.log(`S3 upload completed in ${uploadTime}ms`)
+
+      // Clean up temporary file after successful upload
+      fs.unlink(file.path, (err: NodeJS.ErrnoException | null) => {
+        if (err) {
+          console.warn(`Failed to clean up temp file ${file.path}:`, err)
+        } else {
+          console.log(`Temp file cleaned up: ${file.path}`)
+        }
+      })
+
+      // Update storage path to use S3 key
+      storagePath = uploadResult.key
+    } else {
+      throw new Error('File path is required - cannot process')
+    }
+
+    // Use SHA256 hash calculated during upload
+    const contentHash = file.sha256
 
     // Create minimal metadata to speed up database insertion
     const assetData: CreateAssetRequest = {
@@ -664,73 +715,74 @@ export const uploadAssetFile = async (
     }
 
     // Create asset in database (this is fast)
+    console.log(`💾 Creating asset in database for ${file.originalname}...`)
+    const dbStartTime = Date.now()
+
     const asset = await createAsset(assetData)
 
+    const dbTime = Date.now() - dbStartTime
+    console.log(`Database insertion completed in ${dbTime}ms`)
+
+    // Send response immediately after successful upload and database insertion
+    // Background jobs will be queued asynchronously without blocking the response
+    console.log(
+      `Asset created successfully: ${asset.id} (${file.originalname})`
+    )
+
     // Queue background jobs asynchronously to not block the upload response
-    // Use setImmediate to defer this operation
-    setImmediate(() => {
-      queueAutoProcessingJobs(asset).catch((error) => {
+    // Use process.nextTick to defer this operation and prevent connection timeouts
+    process.nextTick(async () => {
+      try {
+        console.log(
+          `Queuing background jobs for asset ${asset.id} (${file.originalname})`
+        )
+        const jobStartTime = Date.now()
+
+        await queueAutoProcessingJobs(asset)
+
+        const jobTime = Date.now() - jobStartTime
+        console.log(`Background job queuing completed in ${jobTime}ms`)
+        console.log(`Background jobs queued successfully for asset ${asset.id}`)
+      } catch (error) {
         console.warn(
-          `Failed to queue background jobs for asset ${asset.id}:`,
+          `⚠️ Failed to queue background jobs for asset ${asset.id}:`,
           error
         )
-      })
+
+        // The jobs can be queued manually later if needed
+      }
     })
 
     return {
+      success: true,
+      assetId: asset.id,
       asset,
       message:
         duplicateCheck.isDuplicate && options?.replaceDuplicates
-          ? `Replaced: ${file.originalname}`
-          : `Uploaded: ${file.originalname}`,
+          ? `Replaced: ${file.originalname} (S3: ${storagePath})`
+          : `Uploaded: ${file.originalname} (S3: ${storagePath})`,
     }
   } catch (error) {
     console.error(`Error:`, error)
-    throw error
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Upload failed',
+    }
   }
 }
 
 // Auto-queue background processing jobs based on file type
 async function queueAutoProcessingJobs(asset: Asset) {
   try {
-    // Only queue essential jobs for small files to improve performance
-    if (asset.file_size < 1024 * 1024) {
-      // Files < 1MB
-      // Only queue metadata extraction for small files
-      const { metadataQueue } = await import('../config/queue.config')
-      const { createJob } = await import('./job.service')
-
-      const metadataJob = await createJob({
-        job_type: 'metadata',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 1,
-        input_data: { autoQueued: true, reason: 'upload' },
-      })
-
-      await metadataQueue.add(
-        'metadata-extraction',
-        {
-          assetId: asset.id!,
-          jobType: 'metadata',
-          options: { autoQueued: true },
-          jobId: metadataJob.id,
-        },
-        {
-          jobId: `meta_${metadataJob.id}`,
-          priority: 1,
-        }
-      )
-      return
-    }
-
-    // For larger files, queue more processing jobs
-    const { thumbnailQueue, metadataQueue, conversionQueue } = await import(
-      '../config/queue.config'
+    console.log(
+      `Starting to queue background jobs for asset ${asset.id} (${asset.filename}, ${asset.file_size} bytes)`
     )
+
+    // For all files, only queue metadata extraction (fast and essential)
+    console.log(`📝 Queuing metadata extraction for ${asset.filename}`)
+    const { metadataQueue } = await import('../config/queue.config')
     const { createJob } = await import('./job.service')
 
-    // Queue metadata extraction first (always needed)
     const metadataJob = await createJob({
       job_type: 'metadata',
       asset_id: asset.id!,
@@ -752,9 +804,22 @@ async function queueAutoProcessingJobs(asset: Asset) {
         priority: 1,
       }
     )
+    console.log(`Metadata job queued for ${asset.filename}`)
 
-    // Generate thumbnails for ALL images (essential for gallery view)
-    if (asset.file_type === 'image') {
+    // For very large files (>100MB), skip all other jobs to prevent timeouts
+    if (asset.file_size > 100 * 1024 * 1024) {
+      console.log(
+        ` File ${asset.filename} is very large (${asset.file_size} bytes), skipping all other jobs to prevent timeouts`
+      )
+      console.log(
+        ` Additional processing jobs can be queued manually later if needed`
+      )
+      return
+    }
+
+    // For images, queue thumbnail generation (essential for gallery view)
+    if (asset.file_type === 'image' && asset.file_size <= 50 * 1024 * 1024) {
+      console.log(`🖼️ Queuing thumbnail generation for image ${asset.filename}`)
       const thumbnailJob = await createJob({
         job_type: 'thumbnail',
         asset_id: asset.id!,
@@ -763,7 +828,7 @@ async function queueAutoProcessingJobs(asset: Asset) {
         input_data: { autoQueued: true, reason: 'upload', size: '300x300' },
       })
 
-      await thumbnailQueue.add(
+      await metadataQueue.add(
         'thumbnail-generation',
         {
           assetId: asset.id!,
@@ -776,103 +841,45 @@ async function queueAutoProcessingJobs(asset: Asset) {
           priority: 2,
         }
       )
+      console.log(`Thumbnail job queued for image ${asset.filename}`)
     }
 
-    // Process videos with FFmpeg (only for files > 10MB)
-    if (asset.file_type === 'video' && asset.file_size > 10 * 1024 * 1024) {
-      // Queue metadata extraction first
-      const videoMetadataJob = await createJob({
-        job_type: 'video_metadata',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 2,
-        input_data: {
-          autoQueued: true,
-          reason: 'upload',
-          operation: 'metadata',
-        },
-      })
-
-      await conversionQueue.add(
-        'metadata-extraction',
-        {
-          assetId: asset.id!,
-          jobType: 'metadata',
-          options: { autoQueued: true },
-          jobId: videoMetadataJob.id,
-        },
-        {
-          jobId: `video_meta_${videoMetadataJob.id}`,
-          priority: 2,
-        }
+    // For medium-sized videos (10MB-100MB), only queue metadata
+    if (
+      asset.file_type === 'video' &&
+      asset.file_size > 10 * 1024 * 1024 &&
+      asset.file_size <= 100 * 1024 * 1024
+    ) {
+      console.log(
+        `File ${asset.filename} is a medium-sized video, metadata extraction queued`
       )
-
-      // Queue video transcoding to multiple resolutions
-      const videoTranscodeJob = await createJob({
-        job_type: 'video_transcode',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 3,
-        input_data: {
-          autoQueued: true,
-          reason: 'upload',
-          operation: 'transcode',
-          resolutions: ['1080p', '720p'],
-        },
-      })
-
-      await conversionQueue.add(
-        'file-conversion',
-        {
-          assetId: asset.id!,
-          jobType: 'conversion',
-          options: {
-            autoQueued: true,
-            resolutions: ['1080p', '720p'],
-            targetFormat: 'mp4',
-            quality: 'medium',
-          },
-          jobId: videoTranscodeJob.id,
-        },
-        {
-          jobId: `video_transcode_${videoTranscodeJob.id}`,
-          priority: 3,
-        }
+      console.log(
+        `⏭ Skipping video processing jobs to prevent timeouts - can be queued manually later`
       )
     }
 
-    // Process audio files (only for files > 5MB)
-    if (asset.file_type === 'audio' && asset.file_size > 5 * 1024 * 1024) {
-      const audioMetadataJob = await createJob({
-        job_type: 'audio_metadata',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 2,
-        input_data: {
-          autoQueued: true,
-          reason: 'upload',
-          operation: 'metadata',
-        },
-      })
-
-      await conversionQueue.add(
-        'file-conversion',
-        {
-          assetId: asset.id!,
-          operation: 'metadata',
-          options: { autoQueued: true },
-          jobId: audioMetadataJob.id,
-        },
-        {
-          jobId: `audio_meta_${audioMetadataJob.id}`,
-          priority: 2,
-        }
+    // For medium-sized audio files (5MB-100MB), only queue metadata
+    if (
+      asset.file_type === 'audio' &&
+      asset.file_size > 5 * 1024 * 1024 &&
+      asset.file_size <= 100 * 1024 * 1024
+    ) {
+      console.log(
+        `File ${asset.filename} is a medium-sized audio file, metadata extraction queued`
+      )
+      console.log(
+        `⏭ Skipping audio processing jobs to prevent timeouts - can be queued manually later`
       )
     }
+
+    console.log(
+      `Essential background jobs queued successfully for ${asset.filename}`
+    )
   } catch (error) {
     console.error(
       `Failed to auto-queue processing jobs for asset ${asset.id}:`,
       error
     )
+    // Jobs can be queued manually later if needed
   }
 }

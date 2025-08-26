@@ -11,6 +11,11 @@ const redisConfig = {
   db: parseInt(process.env.REDIS_DB || '0'),
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
+  // Add timeout configurations to prevent hanging
+  connectTimeout: 10000, // 10 seconds
+  commandTimeout: 5000,  // 5 seconds
+  lazyConnect: true,     // Don't connect immediately
+  retryDelayOnClusterDown: 300,
 }
 
 // Create Redis client
@@ -51,7 +56,14 @@ export const getRedisClient = (): Redis | null => {
 export const testRedisConnection = async (): Promise<boolean> => {
   try {
     const client = await initRedis()
-    await client.ping()
+    
+    // Add timeout to prevent hanging
+    const pingPromise = client.ping()
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Redis ping timeout')), 5000)
+    })
+    
+    await Promise.race([pingPromise, timeoutPromise])
     return true
   } catch (error) {
     console.error('Redis: Connection test failed:', error)

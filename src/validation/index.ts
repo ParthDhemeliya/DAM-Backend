@@ -10,7 +10,14 @@ export * from './file.validation'
 export * from './job.validation'
 
 // Upload validation
-export * from './upload.validation'
+// Export upload validation with specific names to avoid conflicts
+export {
+  validateUploadRequest,
+  validateFileType,
+  validateFileSize,
+  validateFileCount,
+  validateUploadOptions,
+} from './upload.validation'
 
 // Re-export base validation functions
 export {

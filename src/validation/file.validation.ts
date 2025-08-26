@@ -23,19 +23,6 @@ export const validateMimeType = (mimeType: string): void => {
   }
 }
 
-// File size validation
-export const validateFileSize = (size: number, maxSize?: number): void => {
-  validateNumber(size, 'file size', 1)
-
-  if (maxSize && size > maxSize) {
-    const maxSizeMB = Math.round(maxSize / (1024 * 1024))
-    const actualSizeMB = Math.round(size / (1024 * 1024))
-    throw new Error(
-      `File size ${actualSizeMB}MB exceeds maximum allowed size ${maxSizeMB}MB`
-    )
-  }
-}
-
 // Filename validation
 export const validateFilename = (filename: string): void => {
   validateString(filename, 'filename')
@@ -114,8 +101,7 @@ export const validateImageFile = (mimeType: string, size: number): void => {
     throw new Error('File is not a valid image type')
   }
 
-  // Max image size: 50MB
-  validateFileSize(size, 50 * 1024 * 1024)
+  // Removed file size validation - no limits
 }
 
 // Video-specific validation
@@ -133,8 +119,7 @@ export const validateVideoFile = (mimeType: string, size: number): void => {
     throw new Error('File is not a valid video type')
   }
 
-  // Max video size: 2GB
-  validateFileSize(size, 2 * 1024 * 1024 * 1024)
+  // Removed file size validation - no limits
 }
 
 // Audio-specific validation
@@ -151,8 +136,7 @@ export const validateAudioFile = (mimeType: string, size: number): void => {
     throw new Error('File is not a valid audio type')
   }
 
-  // Max audio size: 100MB
-  validateFileSize(size, 100 * 1024 * 1024)
+  // Removed file size validation - no limits
 }
 
 // Document-specific validation
@@ -167,6 +151,5 @@ export const validateDocumentFile = (mimeType: string, size: number): void => {
     throw new Error('File is not a valid document type')
   }
 
-  // Max document size: 25MB
-  validateFileSize(size, 25 * 1024 * 1024)
+  // Removed file size validation - no limits
 }

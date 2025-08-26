@@ -144,13 +144,7 @@ export function validateFileForUpload(
     errors.push(`Unsupported file type: ${mimeType}`)
   }
 
-  // Check file size
-  if (!validateFileSize(fileSize, fileType)) {
-    const maxSize = formatFileSize(getFileSizeLimit(fileType))
-    errors.push(
-      `File size exceeds limit for ${fileType} files. Max: ${maxSize}`
-    )
-  }
+  // Removed file size validation - no limits
 
   // Check file extension
   if (!validateFileExtension(filename, fileType)) {

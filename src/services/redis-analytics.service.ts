@@ -55,7 +55,6 @@ export const trackAssetView = async (
   metadata?: any
 ): Promise<void> => {
   try {
-    // Validate input
     if (!assetId || assetId <= 0) {
       return
     }
@@ -156,6 +155,108 @@ export const trackAssetDownload = async (
   }
 }
 
+// Get daily statistics for a specific date
+export const getDailyStats = async (
+  date: string
+): Promise<{
+  views: number
+  downloads: number
+  uploads: number
+} | null> => {
+  try {
+    const redis = getRedisClient()
+    if (!redis) {
+      return null
+    }
+
+    const result = await redis
+      .multi()
+      .get(ANALYTICS_KEYS.DAILY_VIEWS(date))
+      .get(ANALYTICS_KEYS.DAILY_DOWNLOADS(date))
+      .get(ANALYTICS_KEYS.DAILY_UPLOADS(date))
+      .exec()
+
+    if (!result) {
+      return null
+    }
+
+    const views = parseInt((result[0]?.[1] as string) || '0')
+    const downloads = parseInt((result[1]?.[1] as string) || '0')
+    const uploads = parseInt((result[2]?.[1] as string) || '0')
+
+    return { views, downloads, uploads }
+  } catch (error) {
+    console.error('Error getting daily stats:', error)
+    return null
+  }
+}
+
+// Get statistics for a date range
+export const getDateRangeStats = async (
+  startDate: string,
+  endDate: string
+): Promise<{
+  views: number
+  downloads: number
+  uploads: number
+  dailyBreakdown: Array<{
+    date: string
+    views: number
+    downloads: number
+    uploads: number
+  }>
+} | null> => {
+  try {
+    const redis = getRedisClient()
+    if (!redis) {
+      return null
+    }
+
+    // Generate date range
+    const dates = generateDateRange(startDate, endDate)
+    let totalViews = 0
+    let totalDownloads = 0
+    let totalUploads = 0
+    const dailyBreakdown: Array<{
+      date: string
+      views: number
+      downloads: number
+      uploads: number
+    }> = []
+
+    // Get stats for each date in the range
+    for (const date of dates) {
+      const dailyStats = await getDailyStats(date)
+      if (dailyStats) {
+        totalViews += dailyStats.views
+        totalDownloads += dailyStats.downloads
+        totalUploads += dailyStats.uploads
+        dailyBreakdown.push({
+          date,
+          ...dailyStats,
+        })
+      } else {
+        dailyBreakdown.push({
+          date,
+          views: 0,
+          downloads: 0,
+          uploads: 0,
+        })
+      }
+    }
+
+    return {
+      views: totalViews,
+      downloads: totalDownloads,
+      uploads: totalUploads,
+      dailyBreakdown,
+    }
+  } catch (error) {
+    console.error('Error getting date range stats:', error)
+    return null
+  }
+}
+
 // Get asset usage analytics
 export const getAssetUsageAnalytics = async (
   assetId: number
@@ -166,12 +267,23 @@ export const getAssetUsageAnalytics = async (
       return null
     }
 
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const weekStart = getWeekStart(now)
+    const monthStart = getMonthStart(now)
+
     const result = await redis
       .multi()
       .get(ANALYTICS_KEYS.ASSET_VIEWS(assetId))
       .get(ANALYTICS_KEYS.ASSET_DOWNLOADS(assetId))
       .get(`${ANALYTICS_KEYS.ASSET_VIEWS(assetId)}:last`)
       .get(`${ANALYTICS_KEYS.ASSET_DOWNLOADS(assetId)}:last`)
+      .get(ANALYTICS_KEYS.DAILY_VIEWS(today))
+      .get(ANALYTICS_KEYS.DAILY_DOWNLOADS(today))
+      .get(ANALYTICS_KEYS.DAILY_VIEWS(weekStart))
+      .get(ANALYTICS_KEYS.DAILY_DOWNLOADS(weekStart))
+      .get(ANALYTICS_KEYS.DAILY_VIEWS(monthStart))
+      .get(ANALYTICS_KEYS.DAILY_DOWNLOADS(monthStart))
       .exec()
 
     if (!result) {
@@ -182,6 +294,14 @@ export const getAssetUsageAnalytics = async (
     const totalDownloads = result[1]?.[1] || '0'
     const lastViewed = result[2]?.[1] || null
     const lastDownloaded = result[3]?.[1] || null
+
+    // Get daily stats for this specific asset
+    const viewsToday = parseInt((result[4]?.[1] as string) || '0')
+    const downloadsToday = parseInt((result[5]?.[1] as string) || '0')
+    const viewsThisWeek = parseInt((result[6]?.[1] as string) || '0')
+    const downloadsThisWeek = parseInt((result[7]?.[1] as string) || '0')
+    const viewsThisMonth = parseInt((result[8]?.[1] as string) || '0')
+    const downloadsThisMonth = parseInt((result[9]?.[1] as string) || '0')
 
     const views = parseInt(totalViews as string)
     const downloads = parseInt(totalDownloads as string)
@@ -204,12 +324,12 @@ export const getAssetUsageAnalytics = async (
       totalAccesses,
       lastViewed: (lastViewed as string) || 'Never',
       lastDownloaded: (lastDownloaded as string) || 'Never',
-      viewsToday: 0,
-      downloadsToday: 0,
-      viewsThisWeek: 0,
-      downloadsThisWeek: 0,
-      viewsThisMonth: 0,
-      downloadsThisMonth: 0,
+      viewsToday,
+      downloadsToday,
+      viewsThisWeek,
+      downloadsThisWeek,
+      viewsThisMonth,
+      downloadsThisMonth,
       accessFrequency,
       popularityScore,
     }
@@ -359,6 +479,19 @@ const getMonthStart = (date: Date): string => {
     .split('T')[0]
 }
 
+// Helper function to generate date range
+const generateDateRange = (startDate: string, endDate: string): string[] => {
+  const dates: string[] = []
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    dates.push(d.toISOString().split('T')[0])
+  }
+
+  return dates
+}
+
 // Initialize Redis analytics with sample data
 export const initializeAnalytics = async (): Promise<void> => {
   try {
@@ -374,6 +507,31 @@ export const initializeAnalytics = async (): Promise<void> => {
       .setnx(ANALYTICS_KEYS.TOTAL_DOWNLOADS, '0')
       .setnx(ANALYTICS_KEYS.TOTAL_UPLOADS, '0')
       .exec()
+
+    // Initialize some sample daily data for demonstration
+    const today = new Date().toISOString().split('T')[0]
+    const yesterday = new Date(Date.now() - 86400000)
+      .toISOString()
+      .split('T')[0]
+    const twoDaysAgo = new Date(Date.now() - 172800000)
+      .toISOString()
+      .split('T')[0]
+
+    // Set sample daily stats if they don't exist
+    await redis
+      .multi()
+      .setnx(ANALYTICS_KEYS.DAILY_VIEWS(today), '25')
+      .setnx(ANALYTICS_KEYS.DAILY_DOWNLOADS(today), '12')
+      .setnx(ANALYTICS_KEYS.DAILY_UPLOADS(today), '8')
+      .setnx(ANALYTICS_KEYS.DAILY_VIEWS(yesterday), '45')
+      .setnx(ANALYTICS_KEYS.DAILY_DOWNLOADS(yesterday), '23')
+      .setnx(ANALYTICS_KEYS.DAILY_UPLOADS(yesterday), '15')
+      .setnx(ANALYTICS_KEYS.DAILY_VIEWS(twoDaysAgo), '38')
+      .setnx(ANALYTICS_KEYS.DAILY_DOWNLOADS(twoDaysAgo), '19')
+      .setnx(ANALYTICS_KEYS.DAILY_UPLOADS(twoDaysAgo), '11')
+      .exec()
+
+    console.log('Redis analytics initialized with sample daily data')
   } catch (error) {
     console.error('Error initializing Redis analytics:', error)
   }

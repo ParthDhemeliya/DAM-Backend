@@ -7,7 +7,8 @@ import {
   redis,
 } from '../config/queue.config'
 import { getAssetById, updateAsset } from '../services/asset.service'
-import { downloadFile, uploadFile } from '../services/storage'
+import { downloadFile } from '../services/storage'
+import { uploadFile } from '../utils/uploadFile'
 import { createJob, updateJob } from '../services/job.service'
 import sharp from 'sharp'
 import path from 'path'

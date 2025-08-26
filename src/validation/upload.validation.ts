@@ -1,84 +1,185 @@
-import { validateString, validateNumber } from '../middleware/validation'
-import {
-  validateFilename,
-  validateMimeType,
-  validateFileSize,
-} from './file.validation'
+import { Request, Response, NextFunction } from 'express'
+import { body, validationResult } from 'express-validator'
 
-// Upload request validation
-export const validateUploadRequest = (files: Express.Multer.File[]): void => {
-  if (!files || !Array.isArray(files)) {
-    throw new Error('Files must be an array')
-  }
+// Validation rules for upload requests
+export const validateUploadRequest = [
+  // Optional tags validation
+  body('tags')
+    .optional()
+    .isString()
+    .withMessage('Tags must be a string')
+    .custom((value) => {
+      if (value) {
+        const tags = value.split(',')
+        if (tags.length > 20) {
+          throw new Error('Maximum 20 tags allowed')
+        }
+        // Validate each tag
+        for (const tag of tags) {
+          if (tag.trim().length > 50) {
+            throw new Error('Each tag must be 50 characters or less')
+          }
+          if (!/^[a-zA-Z0-9\s\-_]+$/.test(tag.trim())) {
+            throw new Error(
+              'Tags can only contain letters, numbers, spaces, hyphens, and underscores'
+            )
+          }
+        }
+      }
+      return true
+    }),
 
-  if (files.length === 0) {
-    throw new Error('At least one file must be provided')
-  }
+  // Optional metadata validation
+  body('metadata')
+    .optional()
+    .isString()
+    .withMessage('Metadata must be a JSON string')
+    .custom((value) => {
+      if (value) {
+        try {
+          const parsed = JSON.parse(value)
+          if (typeof parsed !== 'object' || parsed === null) {
+            throw new Error('Metadata must be a valid JSON object')
+          }
+          // Check metadata size limit (1MB)
+          const metadataSize = JSON.stringify(parsed).length
+          if (metadataSize > 1024 * 1024) {
+            throw new Error('Metadata size exceeds 1MB limit')
+          }
+          return true
+        } catch (error) {
+          throw new Error('Invalid JSON format for metadata')
+        }
+      }
+      return true
+    }),
 
-  if (files.length > 50) {
-    throw new Error('Maximum 50 files can be uploaded at once')
-  }
+  // Optional category validation
+  body('category')
+    .optional()
+    .isString()
+    .withMessage('Category must be a string')
+    .isLength({ min: 1, max: 100 })
+    .withMessage('Category must be between 1 and 100 characters'),
 
-  // Validate each file
-  for (const file of files) {
-    validateUploadedFile(file)
+  // Optional description validation
+  body('description')
+    .optional()
+    .isString()
+    .withMessage('Description must be a string')
+    .isLength({ min: 1, max: 1000 })
+    .withMessage('Description must be between 1 and 1000 characters'),
+
+  // Process validation results
+  (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req)
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.array().map((err: any) => ({
+          field: err.path || 'unknown',
+          message: err.msg || 'Validation error',
+          value: err.value || 'unknown',
+        })),
+      })
+    }
+    next()
+  },
+]
+
+// Validation for file type checking
+export const validateFileType = (allowedTypes: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.files && !req.file) {
+      return next()
+    }
+
+    const files = req.files
+      ? Array.isArray(req.files)
+        ? req.files
+        : Object.values(req.files).flat()
+      : [req.file]
+
+    for (const file of files) {
+      if (file && !allowedTypes.includes(file.mimetype)) {
+        return res.status(400).json({
+          success: false,
+          error: 'File type not allowed',
+          details: {
+            filename: file.originalname,
+            mimetype: file.mimetype,
+            allowedTypes: allowedTypes,
+          },
+        })
+      }
+    }
+
+    next()
   }
 }
 
-// Individual uploaded file validation
-export const validateUploadedFile = (file: Express.Multer.File): void => {
-  if (!file) {
-    throw new Error('File object is required')
-  }
+// Validation for file size checking (optional, since we have unlimited uploads)
+export const validateFileSize = (maxSizeInBytes: number) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.files && !req.file) {
+      return next()
+    }
 
-  // Check required properties
-  if (!file.originalname) {
-    throw new Error('File originalname is required')
-  }
+    const files = req.files
+      ? Array.isArray(req.files)
+        ? req.files
+        : Object.values(req.files).flat()
+      : [req.file]
 
-  if (!file.mimetype) {
-    throw new Error('File mimetype is required')
-  }
+    for (const file of files) {
+      if (file && file.size > maxSizeInBytes) {
+        return res.status(400).json({
+          success: false,
+          error: 'File size exceeds limit',
+          details: {
+            filename: file.originalname,
+            size: file.size,
+            maxSize: maxSizeInBytes,
+            sizeInMB: (file.size / (1024 * 1024)).toFixed(2),
+          },
+        })
+      }
+    }
 
-  if (!file.size && file.size !== 0) {
-    throw new Error('File size is required')
-  }
-
-  if (!file.buffer) {
-    throw new Error('File buffer is required')
-  }
-
-  // Validate file properties
-  validateFilename(file.originalname)
-  validateMimeType(file.mimetype)
-  validateFileSize(file.size)
-
-  // Validate file buffer
-  validateFileBuffer(file.buffer)
-}
-
-// File buffer validation
-export const validateFileBuffer = (buffer: Buffer): void => {
-  if (!Buffer.isBuffer(buffer)) {
-    throw new Error('File must be a valid buffer')
-  }
-
-  if (buffer.length === 0) {
-    throw new Error('File cannot be empty')
-  }
-
-  // Check for maximum file size (100MB default)
-  const maxSize = parseInt(process.env.MAX_FILE_SIZE || '104857600')
-  if (buffer.length > maxSize) {
-    const maxSizeMB = Math.round(maxSize / (1024 * 1024))
-    const actualSizeMB = Math.round(buffer.length / (1024 * 1024))
-    throw new Error(
-      `File size ${actualSizeMB}MB exceeds maximum allowed size ${maxSizeMB}MB`
-    )
+    next()
   }
 }
 
-// Upload options validation
+// Validation for number of files
+export const validateFileCount = (maxFiles: number) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.files && !req.file) {
+      return next()
+    }
+
+    const files = req.files
+      ? Array.isArray(req.files)
+        ? req.files
+        : Object.values(req.files).flat()
+      : [req.file]
+
+    if (files.length > maxFiles) {
+      return res.status(400).json({
+        success: false,
+        error: 'Too many files',
+        details: {
+          uploaded: files.length,
+          maxAllowed: maxFiles,
+        },
+      })
+    }
+
+    next()
+  }
+}
+
+// Validation for upload options
 export const validateUploadOptions = (options: any): void => {
   if (options && typeof options !== 'object') {
     throw new Error('Upload options must be an object')
@@ -108,177 +209,5 @@ export const validateUploadOptions = (options: any): void => {
 
   if (options?.description && options.description.length > 500) {
     throw new Error('description too long (maximum 500 characters)')
-  }
-}
-
-// Metadata validation for uploads
-export const validateUploadMetadata = (metadata: any): void => {
-  if (metadata && typeof metadata !== 'object') {
-    throw new Error('Metadata must be an object')
-  }
-
-  if (metadata?.tags && !Array.isArray(metadata.tags)) {
-    throw new Error('Tags must be an array')
-  }
-
-  if (metadata?.tags && metadata.tags.length > 20) {
-    throw new Error('Maximum 20 tags allowed')
-  }
-
-  if (metadata?.tags) {
-    for (const tag of metadata.tags) {
-      if (typeof tag !== 'string') {
-        throw new Error('All tags must be strings')
-      }
-      if (tag.length > 50) {
-        throw new Error('Individual tag too long (maximum 50 characters)')
-      }
-    }
-  }
-
-  if (metadata?.customFields && typeof metadata.customFields !== 'object') {
-    throw new Error('Custom fields must be an object')
-  }
-
-  if (metadata?.customFields) {
-    for (const [key, value] of Object.entries(metadata.customFields)) {
-      if (typeof key !== 'string' || key.length > 50) {
-        throw new Error('Custom field key too long (maximum 50 characters)')
-      }
-      if (
-        typeof value !== 'string' &&
-        typeof value !== 'number' &&
-        typeof value !== 'boolean'
-      ) {
-        throw new Error(
-          'Custom field values must be string, number, or boolean'
-        )
-      }
-      if (typeof value === 'string' && value.length > 500) {
-        throw new Error('Custom field value too long (maximum 500 characters)')
-      }
-    }
-  }
-}
-
-// Batch upload validation
-export const validateBatchUpload = (
-  files: Express.Multer.File[],
-  options?: any
-): void => {
-  validateUploadRequest(files)
-
-  if (options) {
-    validateUploadOptions(options)
-  }
-
-  // Check for duplicate filenames in the same batch
-  const filenames = files.map((f) => f.originalname)
-  const uniqueFilenames = new Set(filenames)
-
-  if (filenames.length !== uniqueFilenames.size) {
-    throw new Error('Duplicate filenames detected in upload batch')
-  }
-
-  // Check total size of all files
-  const totalSize = files.reduce((sum, file) => sum + file.size, 0)
-  const maxBatchSize = parseInt(process.env.MAX_BATCH_SIZE || '524288000') // 500MB default
-
-  if (totalSize > maxBatchSize) {
-    const maxBatchSizeMB = Math.round(maxBatchSize / (1024 * 1024))
-    const actualBatchSizeMB = Math.round(totalSize / (1024 * 1024))
-    throw new Error(
-      `Total batch size ${actualBatchSizeMB}MB exceeds maximum allowed size ${maxBatchSizeMB}MB`
-    )
-  }
-}
-
-// File type specific upload validation
-export const validateFileTypeUpload = (
-  file: Express.Multer.File,
-  allowedTypes?: string[]
-): void => {
-  validateUploadedFile(file)
-
-  if (allowedTypes && allowedTypes.length > 0) {
-    const fileExtension = file.originalname.split('.').pop()?.toLowerCase()
-    if (!fileExtension || !allowedTypes.includes(fileExtension)) {
-      throw new Error(
-        `File type not allowed. Allowed types: ${allowedTypes.join(', ')}`
-      )
-    }
-  }
-}
-
-// Image upload validation
-export const validateImageUpload = (file: Express.Multer.File): void => {
-  const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff']
-  validateFileTypeUpload(file, imageExtensions)
-
-  const imageMimes = [
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'image/bmp',
-    'image/tiff',
-  ]
-  if (!imageMimes.includes(file.mimetype)) {
-    throw new Error('File is not a valid image type')
-  }
-}
-
-// Video upload validation
-export const validateVideoUpload = (file: Express.Multer.File): void => {
-  const videoExtensions = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv']
-  validateFileTypeUpload(file, videoExtensions)
-
-  const videoMimes = [
-    'video/mp4',
-    'video/avi',
-    'video/mov',
-    'video/wmv',
-    'video/flv',
-    'video/webm',
-    'video/mkv',
-  ]
-  if (!videoMimes.includes(file.mimetype)) {
-    throw new Error('File is not a valid video type')
-  }
-}
-
-// Audio upload validation
-export const validateAudioUpload = (file: Express.Multer.File): void => {
-  const audioExtensions = ['mp3', 'wav', 'aac', 'ogg', 'flac', 'm4a']
-  validateFileTypeUpload(file, audioExtensions)
-
-  const audioMimes = [
-    'audio/mp3',
-    'audio/wav',
-    'audio/aac',
-    'audio/ogg',
-    'audio/flac',
-    'audio/m4a',
-  ]
-  if (!audioMimes.includes(file.mimetype)) {
-    throw new Error('File is not a valid audio type')
-  }
-}
-
-// Document upload validation
-export const validateDocumentUpload = (file: Express.Multer.File): void => {
-  const documentExtensions = ['pdf', 'doc', 'docx', 'txt', 'rtf']
-  validateFileTypeUpload(file, documentExtensions)
-
-  const documentMimes = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain',
-    'application/rtf',
-  ]
-  if (!documentMimes.includes(file.mimetype)) {
-    throw new Error('File is not a valid document type')
   }
 }

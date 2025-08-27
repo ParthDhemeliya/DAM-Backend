@@ -58,9 +58,7 @@ export async function uploadFile(
 }
 
 // 2. Download file
-export async function downloadFile(
-  key: string
-): Promise<Readable> {
+export async function downloadFile(key: string): Promise<Readable> {
   const res = await s3.send(
     new GetObjectCommand({ Bucket: bucketName, Key: key })
   )
@@ -138,7 +136,7 @@ export async function listFiles(
       })
     )
 
-    return response.Contents?.map((obj) => obj.Key || '') || []
+    return response.Contents?.map((obj: any) => obj.Key || '') || []
   } catch (error) {
     throw new Error(`Failed to list files: ${error}`)
   }

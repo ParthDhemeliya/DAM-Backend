@@ -55,11 +55,22 @@ export function validateFileExtension(
   fileType: FileType
 ): boolean {
   const ext = path.extname(filename).toLowerCase().slice(1)
+
+  // For 'other' file types, accept any extension
+  if (fileType === 'other') {
+    return true
+  }
+
   return ALLOWED_EXTENSIONS[fileType].includes(ext)
 }
 
 // Get allowed extensions for a file type
 export function getAllowedExtensions(fileType: FileType): string[] {
+  // For 'other' file types, return a generic message
+  if (fileType === 'other') {
+    return ['any']
+  }
+
   return ALLOWED_EXTENSIONS[fileType]
 }
 
@@ -139,21 +150,30 @@ export function validateFileForUpload(
   const errors: string[] = []
   const fileType = detectFileType(mimeType)
 
-  // Check file type support
-  if (!isFileTypeSupported(fileType)) {
-    errors.push(`Unsupported file type: ${mimeType}`)
+  // Allow 'other' file types - they're still valid
+  // Only reject if we can't determine the type at all
+  if (!fileType) {
+    errors.push(`Could not determine file type for: ${mimeType}`)
   }
 
-  // Check file size
-  if (!validateFileSize(fileSize, fileType)) {
+  // Check file size - use a more lenient approach for 'other' types
+  if (fileType === 'other') {
+    // For unknown file types, use a generous default limit (100MB)
+    const defaultMaxSize = 100 * 1024 * 1024
+    if (fileSize > defaultMaxSize) {
+      errors.push(
+        `File size ${formatFileSize(fileSize)} exceeds default limit ${formatFileSize(defaultMaxSize)}`
+      )
+    }
+  } else if (!validateFileSize(fileSize, fileType)) {
     const maxSize = formatFileSize(getFileSizeLimit(fileType))
     errors.push(
       `File size exceeds limit for ${fileType} files. Max: ${maxSize}`
     )
   }
 
-  // Check file extension
-  if (!validateFileExtension(filename, fileType)) {
+  // Skip extension validation for 'other' file types to be more permissive
+  if (fileType !== 'other' && !validateFileExtension(filename, fileType)) {
     const allowed = getAllowedExtensions(fileType).join(', ')
     errors.push(`Invalid file extension. Allowed for ${fileType}: ${allowed}`)
   }

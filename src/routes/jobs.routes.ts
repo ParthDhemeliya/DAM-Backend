@@ -57,14 +57,12 @@ router.get('/asset/:assetId', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const jobData: CreateJobRequest = req.body
-    console.log('Creating job with data:', jobData)
     const job = await createJob(jobData)
     res
       .status(201)
       .json({ success: true, data: job, message: 'Job created successfully' })
   } catch (error) {
     console.error('Error creating job:', error)
-    // Return the actual error message for debugging
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred'
     res.status(400).json({
@@ -81,7 +79,6 @@ router.put('/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id)
     const updateData: UpdateJobRequest = req.body
-    // Updating job
     const job = await updateJob(id, updateData)
 
     if (!job) {
@@ -91,7 +88,6 @@ router.put('/:id', async (req, res) => {
     res.json({ success: true, data: job, message: 'Job updated successfully' })
   } catch (error) {
     console.error('Error updating job:', error)
-    // Return the actual error message for debugging
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred'
     res.status(400).json({

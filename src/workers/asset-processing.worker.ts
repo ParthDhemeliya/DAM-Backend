@@ -82,12 +82,9 @@ export const thumbnailWorker = new Worker(
   async (job: Job<AssetProcessingJobData>) => {
     const { assetId, jobType, options, jobId } = job.data
 
-    console.log(`Processing ${jobType} for asset ${assetId}`)
-
     try {
       // Use the jobId from the job data (database job ID)
       const numericJobId = jobId
-      console.log(`Processing job ID: ${numericJobId} (BullMQ ID: ${job.id})`)
 
       // Update job status to processing
       await updateJob(numericJobId, {
@@ -124,7 +121,6 @@ export const thumbnailWorker = new Worker(
         completed_at: new Date(),
       })
 
-      console.log(`${jobType} completed for asset ${assetId}`)
       return result
     } catch (error) {
       console.error(`${jobType} failed for asset ${assetId}:`, error)
@@ -157,12 +153,9 @@ export const metadataWorker = new Worker(
   async (job: Job<AssetProcessingJobData>) => {
     const { assetId, jobType, options, jobId } = job.data
 
-    console.log(`Processing ${jobType} for asset ${assetId}`)
-
     try {
       // Use the jobId from the job data (database job ID)
       const numericJobId = jobId
-      console.log(`Processing job ID: ${numericJobId} (BullMQ ID: ${job.id})`)
 
       // Update job status to processing
       await updateJob(numericJobId, {
@@ -193,7 +186,6 @@ export const metadataWorker = new Worker(
         completed_at: new Date(),
       })
 
-      console.log(`${jobType} completed for asset ${assetId}`)
       return result
     } catch (error) {
       console.error(`${jobType} failed for asset ${assetId}:`, error)
@@ -226,12 +218,9 @@ export const conversionWorker = new Worker(
   async (job: Job<AssetProcessingJobData>) => {
     const { assetId, jobType, options, jobId } = job.data
 
-    console.log(`Processing ${jobType} for asset ${assetId}`)
-
     try {
       // Use the jobId from the job data (database job ID)
       const numericJobId = jobId
-      console.log(`Processing job ID: ${numericJobId} (BullMQ ID: ${job.id})`)
 
       // Update job status to processing
       await updateJob(numericJobId, {
@@ -262,7 +251,6 @@ export const conversionWorker = new Worker(
         completed_at: new Date(),
       })
 
-      console.log(`${jobType} completed for asset ${assetId}`)
       return result
     } catch (error) {
       console.error(`${jobType} failed for asset ${assetId}:`, error)
@@ -291,8 +279,6 @@ export const conversionWorker = new Worker(
 )
 
 async function processThumbnail(asset: any, options: any) {
-  console.log(`Generating thumbnail for ${asset.filename}`)
-
   try {
     // Download file from MinIO
     const fileStream = await downloadFile(asset.storage_path)
@@ -316,15 +302,8 @@ async function processThumbnail(asset: any, options: any) {
     // Create thumbnail path - ensure it's in the correct bucket structure
     const thumbnailPath = `thumbnails/${asset.id}-thumb-${Date.now()}.jpg`
 
-    // Log the thumbnail path for debugging
-    console.log(`Thumbnail will be stored at: ${thumbnailPath}`)
-
     // Upload thumbnail to MinIO
-    console.log(`Uploading thumbnail to MinIO at path: ${thumbnailPath}`)
     const uploadResult = await uploadFile(thumbnailPath, thumbnailBuffer)
-    console.log(`Thumbnail uploaded successfully:`, uploadResult)
-
-    console.log(`Thumbnail generated and uploaded: ${thumbnailPath}`)
 
     return {
       thumbnail_path: thumbnailPath,
@@ -340,8 +319,6 @@ async function processThumbnail(asset: any, options: any) {
 
 // Metadata extraction
 async function processMetadata(asset: any, options: any) {
-  console.log(`Extracting metadata for ${asset.filename}`)
-
   try {
     // Download file from MinIO
     const fileStream = await downloadFile(asset.storage_path)
@@ -705,8 +682,6 @@ async function processMetadata(asset: any, options: any) {
 
 // File conversion
 async function processConversion(asset: any, options: any) {
-  console.log(`Converting file ${asset.filename}`)
-
   try {
     // Download file from MinIO
     const fileStream = await downloadFile(asset.storage_path)
@@ -835,8 +810,6 @@ async function processConversion(asset: any, options: any) {
 
 // Cleanup processing
 async function processCleanup(asset: any, options: any) {
-  console.log(`Cleaning up ${asset.filename}`)
-
   try {
     await new Promise((resolve) => setTimeout(resolve, 1000))
 

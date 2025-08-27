@@ -2,7 +2,6 @@ import { Router } from 'express'
 import multer from 'multer'
 import { Pool } from 'pg'
 import {
-  createAsset,
   getAssetById,
   getAllAssets,
   updateAsset,
@@ -33,49 +32,13 @@ const pool: Pool = getPool()
 
 // Configure multer for file uploads
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.memoryStorage(), // Use memory storage for better performance
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB default
+    fileSize: parseInt(process.env.MAX_FILE_SIZE || '4294967296'),
   },
   fileFilter: (req, file, cb) => {
-    // Allow all file types for now, you can add validation here
     cb(null, true)
   },
-})
-
-// Test streaming endpoint
-router.get('/test-stream/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id)
-    const asset = await getAssetById(id)
-
-    if (!asset) {
-      return res.status(404).json({ success: false, error: 'Asset not found' })
-    }
-
-    // Get the file from storage
-    const { downloadFile } = await import('../services/storage')
-    const fileStream = await downloadFile(asset.storage_path)
-
-    if (!fileStream) {
-      return res.status(404).json({ success: false, error: 'File not found in storage' })
-    }
-
-    // Set appropriate headers for streaming
-    res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
-    res.setHeader('Accept-Ranges', 'bytes')
-    res.setHeader('Content-Length', asset.file_size)
-    res.setHeader('Cache-Control', 'public, max-age=3600')
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Ranges')
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
-
-    // Stream the entire file
-    fileStream.pipe(res)
-  } catch (error) {
-    console.error('Error testing stream:', error)
-    res.status(500).json({ success: false, error: 'Failed to test stream' })
-  }
 })
 
 // Get all assets with pagination and filters
@@ -247,7 +210,6 @@ router.get('/:id', async (req, res) => {
 
     res.json({ success: true, data: asset })
   } catch (error) {
-    console.error('Error getting asset by ID:', error)
     res.status(500).json({ success: false, error: 'Failed to get asset' })
   }
 })
@@ -270,7 +232,6 @@ router.get('/:id/access', async (req, res) => {
       message: 'Asset access URL generated successfully',
     })
   } catch (error) {
-    console.error('Error getting asset with signed URL:', error)
     res
       .status(500)
       .json({ success: false, error: 'Failed to get asset access URL' })
@@ -278,15 +239,24 @@ router.get('/:id/access', async (req, res) => {
 })
 
 // Upload one or many files and create assets
-// Accepts: form-data with keys 'file' (single) or 'files' (multiple), or multiple 'file' entries
-// Optional body parameters for duplicate handling:
-// - duplicateAction: 'skip' | 'replace' | 'error'
-// - replaceAssetId: ID of asset to replace (required if duplicateAction is 'replace')
-router.post('/upload', upload.any(), async (req, res) => {
+
+router.post('/upload', upload.array('files'), async (req, res) => {
   const requestId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
 
   try {
     const files = (req.files as Express.Multer.File[]) || []
+
+    console.log(
+      `[${requestId}] Upload request received with ${files.length} files`
+    )
+    console.log(
+      `[${requestId}] Files:`,
+      files.map((f) => ({
+        name: f.originalname,
+        size: f.size,
+        mimetype: f.mimetype,
+      }))
+    )
 
     // Parse duplicate handling options from request body
     const duplicateOptions = {
@@ -296,7 +266,20 @@ router.post('/upload', upload.any(), async (req, res) => {
         : undefined,
     }
 
-    validateUploadRequest(files)
+    try {
+      validateUploadRequest(files)
+      console.log(`[${requestId}] File validation passed`)
+    } catch (validationError) {
+      console.error(`[${requestId}] File validation failed:`, validationError)
+      return res.status(400).json({
+        success: false,
+        error: 'File validation failed',
+        details:
+          validationError instanceof Error
+            ? validationError.message
+            : 'Unknown validation error',
+      })
+    }
 
     // Validate duplicate handling options
     if (
@@ -315,10 +298,40 @@ router.post('/upload', upload.any(), async (req, res) => {
       description: (req.body.description as string) || 'Uploaded via API',
     }
 
-    validateUploadMetadata(baseMetadata)
-    validateBatchUpload(files, {
-      skipDuplicates: duplicateOptions.duplicateAction === 'skip',
-    })
+    try {
+      validateUploadMetadata(baseMetadata)
+      console.log(`[${requestId}] Metadata validation passed`)
+    } catch (metadataError) {
+      console.error(`[${requestId}] Metadata validation failed:`, metadataError)
+      return res.status(400).json({
+        success: false,
+        error: 'Metadata validation failed',
+        details:
+          metadataError instanceof Error
+            ? metadataError.message
+            : 'Unknown metadata error',
+      })
+    }
+
+    try {
+      validateBatchUpload(files, {
+        skipDuplicates: duplicateOptions.duplicateAction === 'skip',
+      })
+      console.log(`[${requestId}] Batch upload validation passed`)
+    } catch (batchError) {
+      console.error(
+        `[${requestId}] Batch upload validation failed:`,
+        batchError
+      )
+      return res.status(400).json({
+        success: false,
+        error: 'Batch upload validation failed',
+        details:
+          batchError instanceof Error
+            ? batchError.message
+            : 'Unknown batch error',
+      })
+    }
 
     // Set headers for streaming response
     res.setHeader('Content-Type', 'application/json')
@@ -327,7 +340,9 @@ router.post('/upload', upload.any(), async (req, res) => {
     res.setHeader('Connection', 'keep-alive')
 
     // Start response immediately
-    res.write('{"success":true,"message":"Upload started","files":[')
+    if (!res.headersSent) {
+      res.write('{"success":true,"message":"Upload started","files":[')
+    }
 
     const results = []
     const skipped = []
@@ -338,60 +353,81 @@ router.post('/upload', upload.any(), async (req, res) => {
     // Process files sequentially for better memory management and smoother progress
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-
       try {
-        // Send progress update for each file
-        if (!isFirstFile) {
-          res.write(',')
-        }
-        isFirstFile = false
+        console.log(
+          `[${requestId}] Processing file ${i + 1}/${files.length}: ${file.originalname}`
+        )
 
         // Process file
-        const result = await uploadAssetFile(file, baseMetadata)
+        console.log(
+          `[${requestId}] Calling uploadAssetFile for ${file.originalname}`
+        )
+        let result
+        try {
+          result = await uploadAssetFile(file, baseMetadata)
+          console.log(`[${requestId}] uploadAssetFile result:`, result)
+        } catch (uploadError) {
+          console.error(
+            `[${requestId}] uploadAssetFile failed for ${file.originalname}:`,
+            uploadError
+          )
+          throw uploadError
+        }
+
+        // Send progress update for each file (only after successful processing)
+        if (!isFirstFile) {
+          if (!res.headersSent) res.write(',')
+        }
+        isFirstFile = false
 
         if (result.skipped) {
           skipped.push({
             filename: file.originalname,
             reason: result.message,
           })
-          res.write(
-            `{"status":"skipped","filename":"${file.originalname}","reason":"${result.message}"}`
-          )
+          if (!res.headersSent) {
+            res.write(
+              `{"status":"skipped","filename":"${file.originalname}","reason":"${result.message}"}`
+            )
+          }
         } else if (result.replaced) {
           replaced.push({
             filename: file.originalname,
             message: result.message,
           })
           results.push(result.asset)
-          res.write(
-            `{"status":"replaced","filename":"${file.originalname}","message":"${result.message}"}`
-          )
+          if (!res.headersSent) {
+            res.write(
+              `{"status":"replaced","filename":"${file.originalname}","message":"${result.message}"}`
+            )
+          }
         } else {
           uploaded.push({
             filename: file.originalname,
             message: result.message,
           })
           results.push(result.asset)
-          res.write(
-            `{"status":"uploaded","filename":"${file.originalname}","message":"${result.message}"}`
-          )
+          if (!res.headersSent) {
+            res.write(
+              `{"status":"uploaded","filename":"${file.originalname}","message":"${result.message}"}`
+            )
+          }
         }
-
-        // Note: res.flush() is not available in Express Response type
       } catch (error) {
-        console.error(`Error processing file ${file.originalname}:`, error)
         skipped.push({
           filename: file.originalname,
           reason: error instanceof Error ? error.message : 'Unknown error',
         })
 
         if (!isFirstFile) {
-          res.write(',')
+          if (!res.headersSent) res.write(',')
         }
         isFirstFile = false
-        res.write(
-          `{"status":"error","filename":"${file.originalname}","error":"${error instanceof Error ? error.message : 'Unknown error'}"}`
-        )
+        if (!res.headersSent) {
+          res.write(
+            `{"status":"error","filename":"${file.originalname}","error":"${error instanceof Error ? error.message : 'Unknown error'}"}`
+          )
+        }
       }
     }
 
@@ -409,11 +445,34 @@ router.post('/upload', upload.any(), async (req, res) => {
 
     const finalResponse = `],"summary":{"uploaded":${uploaded.length},"replaced":${replaced.length},"skipped":${skipped.length},"total":${files.length}},"message":"${message.trim()}"}`
 
-    res.write(finalResponse)
-    res.end()
+    if (!res.headersSent) {
+      res.write(finalResponse)
+      res.end()
+    } else {
+      res.end()
+    }
   } catch (error) {
-    console.error(`Error uploading file(s):`, error)
-    res.status(500).json({ success: false, error: 'Failed to upload file(s)' })
+    console.error(`[${requestId}] Upload failed:`, error)
+    console.error(
+      `[${requestId}] Error stack:`,
+      error instanceof Error ? error.stack : 'No stack trace'
+    )
+
+    // Check if response headers have already been sent
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to upload file(s)',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      })
+    } else {
+      // If headers already sent, try to end the response properly
+      try {
+        res.end()
+      } catch (endError) {
+        console.error('Failed to end response:', endError)
+      }
+    }
   }
 })
 
@@ -493,7 +552,6 @@ router.post('/check-duplicates-simple', async (req, res) => {
       count: duplicates.length,
     })
   } catch (error) {
-    console.error('Error checking for duplicates:', error)
     res.status(500).json({
       success: false,
       error: 'Failed to check for duplicates',
@@ -518,7 +576,6 @@ router.put('/:id', async (req, res) => {
       message: 'Asset updated successfully',
     })
   } catch (error) {
-    console.error('Error updating asset:', error)
     res.status(500).json({ success: false, error: 'Failed to update asset' })
   }
 })
@@ -538,7 +595,6 @@ router.delete('/:id', async (req, res) => {
       message: 'Asset deleted successfully',
     })
   } catch (error) {
-    console.error('Error deleting asset:', error)
     res.status(500).json({ success: false, error: 'Failed to delete asset' })
   }
 })
@@ -553,26 +609,15 @@ router.get('/:id/download', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Asset not found' })
     }
 
-    console.log(`[DEBUG] Download request for asset ${id}:`, {
-      id: asset.id,
-      filename: asset.filename,
-      storage_path: asset.storage_path,
-      file_size: asset.file_size,
-      mime_type: asset.mime_type
-    })
-
     // Get the file from storage
     const { downloadFile } = await import('../services/storage')
     const fileStream = await downloadFile(asset.storage_path)
 
     if (!fileStream) {
-      console.error(`[DEBUG] File stream is null for storage path: ${asset.storage_path}`)
       return res
         .status(404)
         .json({ success: false, error: 'File not found in storage' })
     }
-
-    console.log(`[DEBUG] File stream created successfully for: ${asset.storage_path}`)
 
     // Set appropriate headers for download
     res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
@@ -593,14 +638,12 @@ router.get('/:id/download', async (req, res) => {
         timestamp: new Date().toISOString(),
       })
     } catch (trackError) {
-      console.warn('Failed to track download:', trackError)
       // Don't fail the download if tracking fails
     }
 
     // Pipe the file stream to response
     fileStream.pipe(res)
   } catch (error) {
-    console.error('Error downloading asset:', error)
     res.status(500).json({ success: false, error: 'Failed to download asset' })
   }
 })
@@ -615,26 +658,15 @@ router.get('/:id/stream', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Asset not found' })
     }
 
-    console.log(`[DEBUG] Stream request for asset ${id}:`, {
-      id: asset.id,
-      filename: asset.filename,
-      storage_path: asset.storage_path,
-      file_size: asset.file_size,
-      mime_type: asset.mime_type
-    })
-
     // Get the file from storage
     const { downloadFile } = await import('../services/storage')
     const fileStream = await downloadFile(asset.storage_path)
 
     if (!fileStream) {
-      console.error(`[DEBUG] File stream is null for storage path: ${asset.storage_path}`)
       return res
         .status(404)
         .json({ success: false, error: 'File not found in storage' })
     }
-
-    console.log(`[DEBUG] File stream created successfully for: ${asset.storage_path}`)
 
     // Set appropriate headers for streaming
     res.setHeader('Content-Type', asset.mime_type || 'application/octet-stream')
@@ -643,7 +675,10 @@ router.get('/:id/stream', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=3600')
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Ranges')
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length')
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'Content-Range, Accept-Ranges, Content-Length'
+    )
 
     // Handle range requests for video/audio streaming
     const range = req.headers.range
@@ -655,10 +690,10 @@ router.get('/:id/stream', async (req, res) => {
 
       // Validate range
       if (start >= asset.file_size || end >= asset.file_size) {
-        res.status(416).json({ 
-          success: false, 
+        res.status(416).json({
+          success: false,
           error: 'Range not satisfiable',
-          contentLength: asset.file_size
+          contentLength: asset.file_size,
         })
         return
       }
@@ -687,12 +722,45 @@ router.get('/:id/stream', async (req, res) => {
         action: 'stream',
       })
     } catch (trackError) {
-      console.warn('Failed to track stream view:', trackError)
       // Don't fail the stream if tracking fails
     }
   } catch (error) {
-    console.error('Error streaming asset:', error)
     res.status(500).json({ success: false, error: 'Failed to stream asset' })
+  }
+})
+
+// Test upload endpoint for debugging
+router.post('/test-upload', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file
+    if (!file) {
+      return res.status(400).json({ success: false, error: 'No file provided' })
+    }
+
+    console.log('Test upload received:', {
+      originalname: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+      buffer: file.buffer ? 'Buffer exists' : 'No buffer',
+    })
+
+    res.json({
+      success: true,
+      message: 'Test upload successful',
+      file: {
+        originalname: file.originalname,
+        size: file.size,
+        mimetype: file.mimetype,
+        hasBuffer: !!file.buffer,
+      },
+    })
+  } catch (error) {
+    console.error('Test upload failed:', error)
+    res.status(500).json({
+      success: false,
+      error: 'Test upload failed',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    })
   }
 })
 

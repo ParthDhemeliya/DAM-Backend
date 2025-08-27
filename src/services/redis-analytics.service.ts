@@ -62,6 +62,7 @@ export const trackAssetUpload = async (
 
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics tracking')
       return
     }
 
@@ -95,6 +96,7 @@ export const trackAssetUpload = async (
     await pipeline.exec()
   } catch (error) {
     console.error('Error tracking asset upload:', error)
+    // Don't throw - analytics tracking failure shouldn't break the main flow
   }
 }
 
@@ -112,6 +114,7 @@ export const trackAssetView = async (
 
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics tracking')
       return
     }
 
@@ -149,6 +152,7 @@ export const trackAssetView = async (
     await pipeline.exec()
   } catch (error) {
     console.error('Error tracking asset view:', error)
+    // Don't throw - analytics tracking failure shouldn't break the main flow
   }
 }
 
@@ -166,6 +170,7 @@ export const trackAssetDownload = async (
 
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics tracking')
       return
     }
 
@@ -203,6 +208,7 @@ export const trackAssetDownload = async (
     await pipeline.exec()
   } catch (error) {
     console.error('Error tracking asset download:', error)
+    // Don't throw - analytics tracking failure shouldn't break the main flow
   }
 }
 
@@ -213,6 +219,7 @@ export const getAssetUsageAnalytics = async (
   try {
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics tracking')
       return null
     }
 
@@ -274,6 +281,7 @@ export const getPopularAssets = async (limit: number = 10): Promise<any[]> => {
   try {
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics tracking')
       return []
     }
 
@@ -310,6 +318,7 @@ export const getUserBehaviorAnalytics = async (
   try {
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics tracking')
       return null
     }
 
@@ -365,6 +374,7 @@ export const getRealTimeStats = async (): Promise<any> => {
   try {
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics tracking')
       return {}
     }
 
@@ -414,6 +424,7 @@ export const initializeAnalytics = async (): Promise<void> => {
   try {
     const redis = getRedisClient()
     if (!redis) {
+      console.warn('Redis client not available for analytics initialization')
       return
     }
 
@@ -426,5 +437,6 @@ export const initializeAnalytics = async (): Promise<void> => {
       .exec()
   } catch (error) {
     console.error('Error initializing Redis analytics:', error)
+    // Don't throw - analytics initialization failure shouldn't break the main flow
   }
 }

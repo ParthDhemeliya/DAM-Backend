@@ -48,6 +48,56 @@ export interface PerformanceMetrics {
   loadTime: number
 }
 
+// Track asset upload
+export const trackAssetUpload = async (
+  assetId: number,
+  userId?: string,
+  metadata?: any
+): Promise<void> => {
+  try {
+    // Validate input
+    if (!assetId || assetId <= 0) {
+      return
+    }
+
+    const redis = getRedisClient()
+    if (!redis) {
+      return
+    }
+
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    const weekStart = getWeekStart(now)
+    const monthStart = getMonthStart(now)
+
+    // Increment asset uploads using pipeline for better performance
+    const pipeline = redis.pipeline()
+
+    pipeline.incr(ANALYTICS_KEYS.ASSET_UPLOADS(assetId))
+    pipeline.incr(ANALYTICS_KEYS.TOTAL_UPLOADS)
+    pipeline.incr(ANALYTICS_KEYS.DAILY_UPLOADS(today))
+    pipeline.incr(ANALYTICS_KEYS.DAILY_UPLOADS(weekStart))
+    pipeline.incr(ANALYTICS_KEYS.DAILY_UPLOADS(monthStart))
+
+    // Track user activity if userId provided
+    if (userId && userId.trim()) {
+      pipeline.incr(ANALYTICS_KEYS.USER_ACTIVITY(userId))
+      pipeline.sadd(ANALYTICS_KEYS.USER_ASSETS(userId), assetId.toString())
+    }
+
+    // Update last uploaded timestamp
+    pipeline.set(
+      `${ANALYTICS_KEYS.ASSET_UPLOADS(assetId)}:last`,
+      now.toISOString()
+    )
+
+    // Execute all commands
+    await pipeline.exec()
+  } catch (error) {
+    console.error('Error tracking asset upload:', error)
+  }
+}
+
 // Track asset view
 export const trackAssetView = async (
   assetId: number,

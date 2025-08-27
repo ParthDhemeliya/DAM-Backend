@@ -13,6 +13,11 @@ import {
   getUserBehaviorAnalytics,
   getRealTimeStats,
 } from '../services/redis-analytics.service'
+import {
+  syncRedisAnalytics,
+  resetRedisAnalytics,
+  getRedisAnalyticsStatus,
+} from '../utils/redis-sync'
 
 const router = Router()
 
@@ -352,6 +357,69 @@ router.get(
       timestamp: new Date().toISOString(),
       redisStatus: 'available',
     })
+  })
+)
+
+// Sync Redis analytics with database (admin only)
+router.post(
+  '/sync-redis',
+  asyncHandler(async (req: any, res: any) => {
+    try {
+      const result = await syncRedisAnalytics()
+      res.json({
+        success: true,
+        data: result,
+        message: 'Redis analytics synchronized successfully',
+      })
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to sync Redis analytics',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  })
+)
+
+// Reset Redis analytics (admin only)
+router.post(
+  '/reset-redis',
+  asyncHandler(async (req: any, res: any) => {
+    try {
+      const result = await resetRedisAnalytics()
+      res.json({
+        success: true,
+        data: result,
+        message: 'Redis analytics reset successfully',
+      })
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to reset Redis analytics',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  })
+)
+
+// Get Redis analytics status
+router.get(
+  '/redis-status',
+  asyncHandler(async (req: any, res: any) => {
+    try {
+      const status = await getRedisAnalyticsStatus()
+      res.json({
+        success: true,
+        data: status,
+        message: 'Redis analytics status retrieved successfully',
+      })
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get Redis analytics status',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
   })
 )
 

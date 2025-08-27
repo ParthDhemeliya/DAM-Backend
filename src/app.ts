@@ -18,13 +18,15 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 // Middleware
-app.use(cors({
-  origin: true, // Allow all origins in development
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept-Ranges'],
-  exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length']
-}))
+app.use(
+  cors({
+    origin: true, // Allow all origins in development
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept-Ranges'],
+    exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
+  })
+)
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
@@ -69,18 +71,26 @@ app.get('/health', async (req, res) => {
 // Test workers endpoint
 app.get('/test-workers', async (req, res) => {
   try {
-    const { thumbnailQueue, metadataQueue, conversionQueue } = await import('./config/queue.config')
-    
+    const { thumbnailQueue, metadataQueue, conversionQueue } = await import(
+      './config/queue.config'
+    )
+
     // Check queue status
     const thumbnailWaiting = await thumbnailQueue.getWaiting()
     const metadataWaiting = await metadataQueue.getWaiting()
     const conversionWaiting = await conversionQueue.getWaiting()
-    
+
     // Check worker status
-    const thumbnailWorkerStatus = thumbnailWorker.isRunning() ? 'running' : 'stopped'
-    const metadataWorkerStatus = metadataWorker.isRunning() ? 'running' : 'stopped'
-    const conversionWorkerStatus = conversionWorker.isRunning() ? 'running' : 'stopped'
-    
+    const thumbnailWorkerStatus = thumbnailWorker.isRunning()
+      ? 'running'
+      : 'stopped'
+    const metadataWorkerStatus = metadataWorker.isRunning()
+      ? 'running'
+      : 'stopped'
+    const conversionWorkerStatus = conversionWorker.isRunning()
+      ? 'running'
+      : 'stopped'
+
     res.json({
       success: true,
       message: 'Worker status check completed',
@@ -88,29 +98,29 @@ app.get('/test-workers', async (req, res) => {
         thumbnail: {
           status: thumbnailWorkerStatus,
           waitingJobs: thumbnailWaiting.length,
-          queue: 'thumbnail-generation'
+          queue: 'thumbnail-generation',
         },
         metadata: {
           status: metadataWorkerStatus,
           waitingJobs: metadataWaiting.length,
-          queue: 'metadata-extraction'
+          queue: 'metadata-extraction',
         },
         conversion: {
           status: conversionWorkerStatus,
           waitingJobs: conversionWaiting.length,
-          queue: 'file-conversion'
-        }
+          queue: 'file-conversion',
+        },
       },
       queues: {
         thumbnail: thumbnailWaiting.length,
         metadata: metadataWaiting.length,
-        conversion: conversionWaiting.length
-      }
+        conversion: conversionWaiting.length,
+      },
     })
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     })
   }
 })
@@ -119,23 +129,25 @@ app.get('/test-workers', async (req, res) => {
 app.post('/test-thumbnail/:assetId', async (req, res) => {
   try {
     const assetId = parseInt(req.params.assetId)
-    
+
     // Get asset details
     const { getAssetById } = await import('./services/asset.service')
     const asset = await getAssetById(assetId)
-    
+
     if (!asset) {
       return res.status(404).json({ success: false, error: 'Asset not found' })
     }
-    
+
     if (asset.file_type !== 'image') {
-      return res.status(400).json({ success: false, error: 'Asset is not an image' })
+      return res
+        .status(400)
+        .json({ success: false, error: 'Asset is not an image' })
     }
-    
+
     // Create thumbnail job
     const { createJob } = await import('./services/job.service')
     const { thumbnailQueue } = await import('./config/queue.config')
-    
+
     const thumbnailJob = await createJob({
       job_type: 'thumbnail',
       asset_id: asset.id!,
@@ -143,7 +155,7 @@ app.post('/test-thumbnail/:assetId', async (req, res) => {
       priority: 1,
       input_data: { manualTrigger: true, reason: 'test', size: '300x300' },
     })
-    
+
     await thumbnailQueue.add(
       'thumbnail-generation',
       {
@@ -157,7 +169,7 @@ app.post('/test-thumbnail/:assetId', async (req, res) => {
         priority: 1,
       }
     )
-    
+
     res.json({
       success: true,
       message: `Thumbnail job created for asset ${assetId}`,
@@ -166,13 +178,13 @@ app.post('/test-thumbnail/:assetId', async (req, res) => {
         id: asset.id,
         filename: asset.filename,
         file_type: asset.file_type,
-        file_size: asset.file_size
-      }
+        file_size: asset.file_size,
+      },
     })
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
     })
   }
 })
@@ -351,10 +363,12 @@ const checkServices = async () => {
 
   try {
     // Check MinIO connection (optional)
-    const { getSignedReadUrl, ensureBucketExists } = await import('./services/storage')
+    const { getSignedReadUrl, ensureBucketExists } = await import(
+      './services/storage'
+    )
     await getSignedReadUrl('test', 1)
     console.log('MinIO: Connected')
-    
+
     // Ensure the required bucket exists
     try {
       await ensureBucketExists()
@@ -407,6 +421,11 @@ const initializeAnalytics = async () => {
   try {
     await initRedis()
     await initializeStatsService()
+
+    // Initialize Redis analytics with current database state
+    const { initializeRedisAnalytics } = await import('./utils/redis-sync')
+    await initializeRedisAnalytics()
+
     console.log('Analytics services initialized successfully')
   } catch (error) {
     console.warn(

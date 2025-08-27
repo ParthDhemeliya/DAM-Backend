@@ -73,6 +73,7 @@ export const ANALYTICS_KEYS = {
   // Asset usage
   ASSET_VIEWS: (assetId: number) => `asset:${assetId}:views`,
   ASSET_DOWNLOADS: (assetId: number) => `asset:${assetId}:downloads`,
+  ASSET_UPLOADS: (assetId: number) => `asset:${assetId}:uploads`,
   ASSET_ACCESSES: (assetId: number) => `asset:${assetId}:accesses`,
 
   // User activity

@@ -666,6 +666,18 @@ export const uploadAssetFile = async (
     // Create asset in database (this is fast)
     const asset = await createAsset(assetData)
 
+    // Track upload analytics
+    try {
+      const { trackAssetUpload } = await import('./redis-analytics.service')
+      await trackAssetUpload(asset.id!, 'api', {
+        fileType: fileType,
+        fileSize: file.size,
+        uploadMethod: 'api',
+      })
+    } catch (error) {
+      console.warn('Failed to track upload analytics:', error)
+    }
+
     // Queue background jobs asynchronously to not block the upload response
     // Use setImmediate to defer this operation
     setImmediate(() => {
@@ -815,6 +827,9 @@ async function queueAutoProcessingJobs(asset: Asset) {
       }
     }
   } catch (error) {
-    console.error(`Failed to queue background jobs for asset ${asset.id}:`, error)
+    console.error(
+      `Failed to queue background jobs for asset ${asset.id}:`,
+      error
+    )
   }
 }

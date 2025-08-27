@@ -84,7 +84,10 @@ export const getDashboardStats = async (): Promise<DashboardStats> => {
     const realTimeStats = await getRealTimeStats()
     const totalViews = realTimeStats.totalViews || 0
     const totalDownloads = realTimeStats.totalDownloads || 0
-    const totalUploads = realTimeStats.totalUploads || 0
+    
+    // For uploads, use the actual asset count since that's more accurate
+    // Redis upload count might be stale, but asset count is always current
+    const totalUploads = totalAssets
 
     // Get total storage usage from database
     const storageResult = await pool.query(

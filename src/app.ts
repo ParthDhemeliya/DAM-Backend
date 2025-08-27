@@ -66,6 +66,117 @@ app.get('/health', async (req, res) => {
   }
 })
 
+// Test workers endpoint
+app.get('/test-workers', async (req, res) => {
+  try {
+    const { thumbnailQueue, metadataQueue, conversionQueue } = await import('./config/queue.config')
+    
+    // Check queue status
+    const thumbnailWaiting = await thumbnailQueue.getWaiting()
+    const metadataWaiting = await metadataQueue.getWaiting()
+    const conversionWaiting = await conversionQueue.getWaiting()
+    
+    // Check worker status
+    const thumbnailWorkerStatus = thumbnailWorker.isRunning() ? 'running' : 'stopped'
+    const metadataWorkerStatus = metadataWorker.isRunning() ? 'running' : 'stopped'
+    const conversionWorkerStatus = conversionWorker.isRunning() ? 'running' : 'stopped'
+    
+    res.json({
+      success: true,
+      message: 'Worker status check completed',
+      workers: {
+        thumbnail: {
+          status: thumbnailWorkerStatus,
+          waitingJobs: thumbnailWaiting.length,
+          queue: 'thumbnail-generation'
+        },
+        metadata: {
+          status: metadataWorkerStatus,
+          waitingJobs: metadataWaiting.length,
+          queue: 'metadata-extraction'
+        },
+        conversion: {
+          status: conversionWorkerStatus,
+          waitingJobs: conversionWaiting.length,
+          queue: 'file-conversion'
+        }
+      },
+      queues: {
+        thumbnail: thumbnailWaiting.length,
+        metadata: metadataWaiting.length,
+        conversion: conversionWaiting.length
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    })
+  }
+})
+
+// Manual thumbnail generation endpoint for testing
+app.post('/test-thumbnail/:assetId', async (req, res) => {
+  try {
+    const assetId = parseInt(req.params.assetId)
+    
+    // Get asset details
+    const { getAssetById } = await import('./services/asset.service')
+    const asset = await getAssetById(assetId)
+    
+    if (!asset) {
+      return res.status(404).json({ success: false, error: 'Asset not found' })
+    }
+    
+    if (asset.file_type !== 'image') {
+      return res.status(400).json({ success: false, error: 'Asset is not an image' })
+    }
+    
+    // Create thumbnail job
+    const { createJob } = await import('./services/job.service')
+    const { thumbnailQueue } = await import('./config/queue.config')
+    
+    const thumbnailJob = await createJob({
+      job_type: 'thumbnail',
+      asset_id: asset.id!,
+      status: 'pending',
+      priority: 1,
+      input_data: { manualTrigger: true, reason: 'test', size: '300x300' },
+    })
+    
+    await thumbnailQueue.add(
+      'thumbnail-generation',
+      {
+        assetId: asset.id!,
+        jobType: 'thumbnail',
+        options: { manualTrigger: true, size: '300x300' },
+        jobId: thumbnailJob.id,
+      },
+      {
+        jobId: `thumb_${thumbnailJob.id}`,
+        priority: 1,
+      }
+    )
+    
+    res.json({
+      success: true,
+      message: `Thumbnail job created for asset ${assetId}`,
+      jobId: thumbnailJob.id,
+      asset: {
+        id: asset.id,
+        filename: asset.filename,
+        file_type: asset.file_type,
+        file_size: asset.file_size
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    })
+  }
+})
+
 // Root endpoint with API documentation
 app.get('/', (req, res) => {
   res.json({

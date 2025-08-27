@@ -693,44 +693,10 @@ export const uploadAssetFile = async (
 // Auto-queue background processing jobs based on file type
 async function queueAutoProcessingJobs(asset: Asset) {
   try {
-    // Only queue essential jobs for small files to improve performance
-    if (asset.file_size < 1024 * 1024) {
-      // Files < 1MB
-      // Only queue metadata extraction for small files
-      const { metadataQueue } = await import('../config/queue.config')
-      const { createJob } = await import('./job.service')
-
-      const metadataJob = await createJob({
-        job_type: 'metadata',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 1,
-        input_data: { autoQueued: true, reason: 'upload' },
-      })
-
-      await metadataQueue.add(
-        'metadata-extraction',
-        {
-          assetId: asset.id!,
-          jobType: 'metadata',
-          options: { autoQueued: true },
-          jobId: metadataJob.id,
-        },
-        {
-          jobId: `meta_${metadataJob.id}`,
-          priority: 1,
-        }
-      )
-      return
-    }
-
-    // For larger files, queue more processing jobs
-    const { thumbnailQueue, metadataQueue, conversionQueue } = await import(
-      '../config/queue.config'
-    )
+    // Always queue metadata extraction for all files
+    const { metadataQueue } = await import('../config/queue.config')
     const { createJob } = await import('./job.service')
 
-    // Queue metadata extraction first (always needed)
     const metadataJob = await createJob({
       job_type: 'metadata',
       asset_id: asset.id!,
@@ -763,6 +729,7 @@ async function queueAutoProcessingJobs(asset: Asset) {
         input_data: { autoQueued: true, reason: 'upload', size: '300x300' },
       })
 
+      const { thumbnailQueue } = await import('../config/queue.config')
       await thumbnailQueue.add(
         'thumbnail-generation',
         {
@@ -778,101 +745,76 @@ async function queueAutoProcessingJobs(asset: Asset) {
       )
     }
 
-    // Process videos with FFmpeg (only for files > 10MB)
-    if (asset.file_type === 'video' && asset.file_size > 10 * 1024 * 1024) {
-      // Queue metadata extraction first
-      const videoMetadataJob = await createJob({
-        job_type: 'video_metadata',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 2,
-        input_data: {
-          autoQueued: true,
-          reason: 'upload',
-          operation: 'metadata',
-        },
-      })
+    // For larger files, queue additional processing jobs
+    if (asset.file_size >= 1024 * 1024) {
+      const { conversionQueue } = await import('../config/queue.config')
 
-      await conversionQueue.add(
-        'metadata-extraction',
-        {
-          assetId: asset.id!,
-          jobType: 'metadata',
-          options: { autoQueued: true },
-          jobId: videoMetadataJob.id,
-        },
-        {
-          jobId: `video_meta_${videoMetadataJob.id}`,
-          priority: 2,
-        }
-      )
-
-      // Queue video transcoding to multiple resolutions
-      const videoTranscodeJob = await createJob({
-        job_type: 'video_transcode',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 3,
-        input_data: {
-          autoQueued: true,
-          reason: 'upload',
-          operation: 'transcode',
-          resolutions: ['1080p', '720p'],
-        },
-      })
-
-      await conversionQueue.add(
-        'file-conversion',
-        {
-          assetId: asset.id!,
-          jobType: 'conversion',
-          options: {
-            autoQueued: true,
-            resolutions: ['1080p', '720p'],
-            targetFormat: 'mp4',
-            quality: 'medium',
-          },
-          jobId: videoTranscodeJob.id,
-        },
-        {
-          jobId: `video_transcode_${videoTranscodeJob.id}`,
+      // Process videos with FFmpeg (only for files > 10MB)
+      if (asset.file_type === 'video' && asset.file_size > 10 * 1024 * 1024) {
+        // Queue video transcoding to multiple resolutions
+        const videoTranscodeJob = await createJob({
+          job_type: 'video_transcode',
+          asset_id: asset.id!,
+          status: 'pending',
           priority: 3,
-        }
-      )
-    }
+          input_data: {
+            autoQueued: true,
+            reason: 'upload',
+            operation: 'transcode',
+            resolutions: ['1080p', '720p'],
+          },
+        })
 
-    // Process audio files (only for files > 5MB)
-    if (asset.file_type === 'audio' && asset.file_size > 5 * 1024 * 1024) {
-      const audioMetadataJob = await createJob({
-        job_type: 'audio_metadata',
-        asset_id: asset.id!,
-        status: 'pending',
-        priority: 2,
-        input_data: {
-          autoQueued: true,
-          reason: 'upload',
-          operation: 'metadata',
-        },
-      })
+        await conversionQueue.add(
+          'file-conversion',
+          {
+            assetId: asset.id!,
+            jobType: 'conversion',
+            options: {
+              autoQueued: true,
+              resolutions: ['1080p', '720p'],
+              targetFormat: 'mp4',
+              quality: 'medium',
+            },
+            jobId: videoTranscodeJob.id,
+          },
+          {
+            jobId: `video_transcode_${videoTranscodeJob.id}`,
+            priority: 3,
+          }
+        )
+      }
 
-      await conversionQueue.add(
-        'file-conversion',
-        {
-          assetId: asset.id!,
-          operation: 'metadata',
-          options: { autoQueued: true },
-          jobId: audioMetadataJob.id,
-        },
-        {
-          jobId: `audio_meta_${audioMetadataJob.id}`,
+      // Process audio files (only for files > 5MB)
+      if (asset.file_type === 'audio' && asset.file_size > 5 * 1024 * 1024) {
+        const audioMetadataJob = await createJob({
+          job_type: 'audio_metadata',
+          asset_id: asset.id!,
+          status: 'pending',
           priority: 2,
-        }
-      )
+          input_data: {
+            autoQueued: true,
+            reason: 'upload',
+            operation: 'metadata',
+          },
+        })
+
+        await conversionQueue.add(
+          'metadata-extraction',
+          {
+            assetId: asset.id!,
+            jobType: 'metadata',
+            options: { autoQueued: true },
+            jobId: audioMetadataJob.id,
+          },
+          {
+            jobId: `audio_meta_${audioMetadataJob.id}`,
+            priority: 2,
+          }
+        )
+      }
     }
   } catch (error) {
-    console.error(
-      `Failed to auto-queue processing jobs for asset ${asset.id}:`,
-      error
-    )
+    console.error(`Failed to queue background jobs for asset ${asset.id}:`, error)
   }
 }

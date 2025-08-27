@@ -377,10 +377,7 @@ router.post('/upload', upload.any(), async (req, res) => {
           )
         }
 
-        // Flush response to show progress
-        if (res.flush) {
-          res.flush()
-        }
+        // Note: res.flush() is not available in Express Response type
       } catch (error) {
         console.error(`Error processing file ${file.originalname}:`, error)
         skipped.push({

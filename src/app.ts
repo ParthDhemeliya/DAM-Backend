@@ -92,6 +92,7 @@ import {
   thumbnailWorker,
   metadataWorker,
   conversionWorker,
+  cleanupWorker,
 } from './workers/asset-processing.worker'
 
 // Import Redis analytics initialization
@@ -165,6 +166,11 @@ const startWorkers = async () => {
     if (!conversionWorker.isRunning()) {
       conversionWorker.run()
       console.log('Conversion worker started')
+    }
+
+    if (!cleanupWorker.isRunning()) {
+      cleanupWorker.run()
+      console.log('Cleanup worker started')
     }
 
     console.log('All background workers started successfully!')

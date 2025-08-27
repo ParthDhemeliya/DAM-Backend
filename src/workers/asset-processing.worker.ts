@@ -9,6 +9,7 @@ import {
 import { getAssetById, updateAsset } from '../services/asset.service'
 import { downloadFile, uploadFile } from '../services/storage'
 import { createJob, updateJob } from '../services/job.service'
+import { createTempPath, cleanupTempFile } from '../utils/tempUtils'
 import sharp from 'sharp'
 import path from 'path'
 import fs from 'fs'
@@ -278,6 +279,71 @@ export const conversionWorker = new Worker(
   }
 )
 
+export const cleanupWorker = new Worker(
+  'cleanup',
+  async (job: Job<AssetProcessingJobData>) => {
+    const { assetId, jobType, options, jobId } = job.data
+
+    try {
+      // Use the jobId from the job data (database job ID)
+      const numericJobId = jobId
+
+      // Update job status to processing
+      await updateJob(numericJobId, {
+        status: 'processing',
+        started_at: new Date(),
+      })
+
+      // Get asset details
+      const asset = await getAssetById(assetId)
+      if (!asset) {
+        throw new Error(`Asset ${assetId} not found`)
+      }
+
+      // Process cleanup
+      const result = await processCleanup(asset, options)
+
+      // Update asset with processing results
+      await updateAsset(assetId, {
+        status: 'processed',
+        metadata: { ...asset.metadata, [jobType]: result },
+      })
+
+      // Update job status to completed
+      await updateJob(numericJobId, {
+        status: 'completed',
+        progress: 100,
+        output_data: result,
+        completed_at: new Date(),
+      })
+
+      return result
+    } catch (error) {
+      console.error(`${jobType} failed for asset ${assetId}:`, error)
+
+      // Update job status to failed
+      try {
+        const numericJobId = jobId
+        await updateJob(numericJobId, {
+          status: 'failed',
+          error_message:
+            error instanceof Error ? error.message : 'Unknown error',
+        })
+      } catch (updateError) {
+        console.error('Failed to update job status to failed:', updateError)
+      }
+
+      throw error
+    }
+  },
+  {
+    connection: redis,
+    concurrency: 1,
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 50 },
+  }
+)
+
 async function processThumbnail(asset: any, options: any) {
   try {
     // Download file from MinIO
@@ -370,7 +436,7 @@ async function processMetadata(asset: any, options: any) {
           metadata.video_metadata = 'FFmpeg not available'
         } else {
           // Create temporary file for FFmpeg analysis
-          const tempPath = `/tmp/metadata_${asset.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp4`
+          const tempPath = createTempPath(`metadata_${asset.id}`, 'mp4')
           fs.writeFileSync(tempPath, fileBuffer)
 
           // Use FFmpeg to extract video metadata
@@ -415,7 +481,7 @@ async function processMetadata(asset: any, options: any) {
           })
 
           try {
-            fs.unlinkSync(tempPath)
+            cleanupTempFile(tempPath)
           } catch (cleanupError) {
             console.warn(
               `Could not clean up temp file ${tempPath}:`,
@@ -485,7 +551,10 @@ async function processMetadata(asset: any, options: any) {
           console.warn('FFmpeg not available for audio metadata extraction')
           metadata.audio_metadata = 'FFmpeg not available'
         } else {
-          const tempPath = `/tmp/metadata_${asset.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${asset.mime_type.split('/')[1] || 'mp3'}`
+          const tempPath = createTempPath(
+            `metadata_${asset.id}`,
+            asset.mime_type.split('/')[1] || 'mp3'
+          )
           fs.writeFileSync(tempPath, fileBuffer)
 
           const { spawn } = await import('child_process')
@@ -530,7 +599,7 @@ async function processMetadata(asset: any, options: any) {
 
           // Clean up temp file
           try {
-            fs.unlinkSync(tempPath)
+            cleanupTempFile(tempPath)
           } catch (cleanupError) {
             console.warn(
               `Could not clean up temp file ${tempPath}:`,
@@ -737,7 +806,7 @@ async function processConversion(asset: any, options: any) {
           throw new Error('FFmpeg not available for video processing')
         }
 
-        const tempInputPath = `/tmp/input_${asset.id}_${Date.now()}.mp4`
+        const tempInputPath = createTempPath(`input_${asset.id}`, 'mp4')
         fs.writeFileSync(tempInputPath, fileBuffer)
 
         const resolutions = options?.resolutions || ['1080p', '720p']
@@ -745,7 +814,10 @@ async function processConversion(asset: any, options: any) {
 
         for (const resolution of resolutions) {
           const outputFileName = `${asset.id}_${resolution}_${Date.now()}.mp4`
-          const tempOutputPath = `/tmp/${outputFileName}`
+          const tempOutputPath = createTempPath(
+            `output_${asset.id}_${resolution}`,
+            'mp4'
+          )
           const minioOutputPath = `transcoded/${asset.id}/${outputFileName}`
 
           console.log(`Transcoding ${asset.filename} to ${resolution}`)
@@ -764,7 +836,7 @@ async function processConversion(asset: any, options: any) {
             await uploadFile(minioOutputPath, transcodedBuffer)
 
             // Clean up temp file
-            fs.unlinkSync(tempOutputPath)
+            cleanupTempFile(tempOutputPath)
 
             transcodeResults.push({
               resolution,
@@ -785,7 +857,7 @@ async function processConversion(asset: any, options: any) {
         }
 
         // Clean up input temp file
-        fs.unlinkSync(tempInputPath)
+        cleanupTempFile(tempInputPath)
 
         result.video_transcode = {
           success: true,

@@ -250,7 +250,6 @@ export class VideoWorker {
       // Extract metadata using video service
       const metadata = await videoService.extractMetadata(tempPath)
 
-      // Clean up temp file
       cleanupTempFile(tempPath)
 
       return metadata

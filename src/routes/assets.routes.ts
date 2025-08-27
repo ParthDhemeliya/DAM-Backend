@@ -7,7 +7,6 @@ import {
   updateAsset,
   deleteAsset,
   getAssetWithSignedUrl,
-  uploadAssetFile,
   getAssetsWithFilters,
   searchAssets,
   getAssetsWithSignedUrls,
@@ -19,7 +18,7 @@ import {
 import { asyncHandler } from '../middleware/asyncHandler'
 import { createJob } from '../services/job.service'
 import { getPool } from '../config/database.config'
-import { formatFileSize } from '../utils/fileTypeUtils'
+import { formatFileSize, detectFileType } from '../utils/fileTypeUtils'
 import {
   validateUploadRequest,
   validateBatchUpload,
@@ -29,6 +28,8 @@ import {
 import { Upload } from '@aws-sdk/lib-storage'
 import { s3 } from '../clients/s3'
 import fs from 'fs'
+import path from 'path'
+import { createAsset } from '../services/asset.service'
 
 const router = Router()
 const pool: Pool = getPool()
@@ -246,244 +247,6 @@ router.get('/:id/access', async (req, res) => {
   }
 })
 
-// Upload one or many files and create assets
-
-// router.post('/upload', upload.array('files'), async (req, res) => {
-//   debugger
-//   const requestId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-
-//   try {
-//     const files = (req.files as Express.Multer.File[]) || []
-
-//     console.log(
-//       `[${requestId}] Upload request received with ${files.length} files`
-//     )
-//     console.log(
-//       `[${requestId}] Files:`,
-//       files.map((f) => ({
-//         name: f.originalname,
-//         size: f.size,
-//         mimetype: f.mimetype,
-//       }))
-//     )
-
-//     // Parse duplicate handling options from request body
-//     const duplicateOptions = {
-//       duplicateAction: req.body.duplicateAction || 'error',
-//       replaceAssetId: req.body.replaceAssetId
-//         ? parseInt(req.body.replaceAssetId)
-//         : undefined,
-//     }
-
-//     try {
-//       validateUploadRequest(files)
-//       console.log(`[${requestId}] File validation passed`)
-//     } catch (validationError) {
-//       console.error(`[${requestId}] File validation failed:`, validationError)
-//       return res.status(400).json({
-//         success: false,
-//         error: 'File validation failed',
-//         details:
-//           validationError instanceof Error
-//             ? validationError.message
-//             : 'Unknown validation error',
-//       })
-//     }
-
-//     // Validate duplicate handling options
-//     if (
-//       duplicateOptions.duplicateAction === 'replace' &&
-//       !duplicateOptions.replaceAssetId
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         error: 'replaceAssetId is required when duplicateAction is "replace"',
-//       })
-//     }
-
-//     // Optional metadata from fields (applied to all)
-//     const baseMetadata = {
-//       category: (req.body.category as string) || 'upload',
-//       description: (req.body.description as string) || 'Uploaded via API',
-//     }
-
-//     try {
-//       validateUploadMetadata(baseMetadata)
-//       console.log(`[${requestId}] Metadata validation passed`)
-//     } catch (metadataError) {
-//       console.error(`[${requestId}] Metadata validation failed:`, metadataError)
-//       return res.status(400).json({
-//         success: false,
-//         error: 'Metadata validation failed',
-//         details:
-//           metadataError instanceof Error
-//             ? metadataError.message
-//             : 'Unknown metadata error',
-//       })
-//     }
-
-//     try {
-//       validateBatchUpload(files, {
-//         skipDuplicates: duplicateOptions.duplicateAction === 'skip',
-//       })
-//       console.log(`[${requestId}] Batch upload validation passed`)
-//     } catch (batchError) {
-//       console.error(
-//         `[${requestId}] Batch upload validation failed:`,
-//         batchError
-//       )
-//       return res.status(400).json({
-//         success: false,
-//         error: 'Batch upload validation failed',
-//         details:
-//           batchError instanceof Error
-//             ? batchError.message
-//             : 'Unknown batch error',
-//       })
-//     }
-
-//     // Set headers for streaming response
-//     res.setHeader('Content-Type', 'application/json')
-//     res.setHeader('Transfer-Encoding', 'chunked')
-//     res.setHeader('Cache-Control', 'no-cache')
-//     res.setHeader('Connection', 'keep-alive')
-
-//     // Start response immediately
-//     if (!res.headersSent) {
-//       res.write('{"success":true,"message":"Upload started","files":[')
-//     }
-
-//     const results = []
-//     const skipped = []
-//     const replaced = []
-//     const uploaded = []
-//     let isFirstFile = true
-
-//     // Process files sequentially for better memory management and smoother progress
-//     for (let i = 0; i < files.length; i++) {
-//       const file = files[i]
-//       try {
-//         console.log(
-//           `[${requestId}] Processing file ${i + 1}/${files.length}: ${file.originalname}`
-//         )
-
-//         // Process file
-//         console.log(
-//           `[${requestId}] Calling uploadAssetFile for ${file.originalname}`
-//         )
-//         let result
-//         try {
-//           result = await uploadAssetFile(file, baseMetadata)
-//           console.log(`[${requestId}] uploadAssetFile result:`, result)
-//         } catch (uploadError) {
-//           console.error(
-//             `[${requestId}] uploadAssetFile failed for ${file.originalname}:`,
-//             uploadError
-//           )
-//           throw uploadError
-//         }
-
-//         // Send progress update for each file (only after successful processing)
-//         if (!isFirstFile) {
-//           if (!res.headersSent) res.write(',')
-//         }
-//         isFirstFile = false
-
-//         if (result.skipped) {
-//           skipped.push({
-//             filename: file.originalname,
-//             reason: result.message,
-//           })
-//           if (!res.headersSent) {
-//             res.write(
-//               `{"status":"skipped","filename":"${file.originalname}","reason":"${result.message}"}`
-//             )
-//           }
-//         } else if (result.replaced) {
-//           replaced.push({
-//             filename: file.originalname,
-//             message: result.message,
-//           })
-//           results.push(result.asset)
-//           if (!res.headersSent) {
-//             res.write(
-//               `{"status":"replaced","filename":"${file.originalname}","message":"${result.message}"}`
-//             )
-//           }
-//         } else {
-//           uploaded.push({
-//             filename: file.originalname,
-//             message: result.message,
-//           })
-//           results.push(result.asset)
-//           if (!res.headersSent) {
-//             res.write(
-//               `{"status":"uploaded","filename":"${file.originalname}","message":"${result.message}"}`
-//             )
-//           }
-//         }
-//       } catch (error) {
-//         skipped.push({
-//           filename: file.originalname,
-//           reason: error instanceof Error ? error.message : 'Unknown error',
-//         })
-
-//         if (!isFirstFile) {
-//           if (!res.headersSent) res.write(',')
-//         }
-//         isFirstFile = false
-//         if (!res.headersSent) {
-//           res.write(
-//             `{"status":"error","filename":"${file.originalname}","error":"${error instanceof Error ? error.message : 'Unknown error'}"}`
-//           )
-//         }
-//       }
-//     }
-
-//     // Close the response
-//     let message = ''
-//     if (uploaded.length > 0) {
-//       message += `Uploaded: ${uploaded.length} new files. `
-//     }
-//     if (replaced.length > 0) {
-//       message += `Replaced: ${replaced.length} duplicate files. `
-//     }
-//     if (skipped.length > 0) {
-//       message += `Skipped: ${skipped.length} files. `
-//     }
-
-//     const finalResponse = `],"summary":{"uploaded":${uploaded.length},"replaced":${replaced.length},"skipped":${skipped.length},"total":${files.length}},"message":"${message.trim()}"}`
-
-//     if (!res.headersSent) {
-//       res.write(finalResponse)
-//       res.end()
-//     } else {
-//       res.end()
-//     }
-//   } catch (error) {
-//     console.error(`[${requestId}] Upload failed:`, error)
-//     console.error(
-//       `[${requestId}] Error stack:`,
-//       error instanceof Error ? error.stack : 'No stack trace'
-//     )
-
-//     // Check if response headers have already been sent
-//     if (!res.headersSent) {
-//       res.status(500).json({
-//         success: false,
-//         error: 'Failed to upload file(s)',
-//         details: error instanceof Error ? error.message : 'Unknown error',
-//       })
-//     } else {
-//       // If headers already sent, try to end the response properly
-//       try {
-//         res.end()
-//       } catch (endError) {
-//         console.error('Failed to end response:', endError)
-//       }
-//     }
-//   }
-// })
 router.post('/upload', upload.array('files'), async (req, res) => {
   const files = req.files as Express.Multer.File[]
   if (!files || files.length === 0) {
@@ -492,43 +255,182 @@ router.post('/upload', upload.array('files'), async (req, res) => {
 
   try {
     const results = []
+    const errors = []
+
     for (const file of files) {
-      const objectName = `assets/${Date.now()}-${file.originalname}`
+      try {
+        // Parse metadata from request body
+        const metadata = {
+          category: req.body.category || 'upload',
+          description: req.body.description || 'Uploaded via API',
+          tags: req.body.tags
+            ? req.body.tags.split(',').map((tag: string) => tag.trim())
+            : [],
+          author: req.body.author || 'unknown',
+          department: req.body.department || 'general',
+          project: req.body.project || 'default',
+        }
 
-      // Create file stream
-      const fileStream = fs.createReadStream(file.path)
+        // Generate unique filename and storage path
+        const timestamp = Date.now()
+        const extension = path.extname(file.originalname)
+        const filename = `${timestamp}-${file.originalname}`
+        const storagePath = `assets/${filename}`
 
-      // Multipart upload (handles GB+ files efficiently)
-      const upload = new Upload({
-        client: s3,
-        params: {
-          Bucket: bucket,
-          Key: objectName,
-          Body: fileStream,
-          ContentType: file.mimetype,
-        },
-      })
+        // Create file stream from disk file (multer writes to disk)
+        const fileStream = fs.createReadStream(file.path)
 
-      await upload.done()
+        // Multipart upload using streaming (handles large files efficiently)
+        const upload = new Upload({
+          client: s3,
+          params: {
+            Bucket: bucket,
+            Key: storagePath,
+            Body: fileStream, // ✅ Streaming from disk for large files
+            ContentType: file.mimetype,
+          },
+        })
 
-      results.push({
-        filename: file.originalname,
-        objectName,
-        bucket,
-      })
+        // Wait for upload to complete
+        await upload.done()
 
-      // Clean up temp file after upload
-      fs.unlinkSync(file.path)
+        // Create asset record in database
+        const assetData: CreateAssetRequest = {
+          filename: file.originalname,
+          original_name: file.originalname,
+          file_type: detectFileType(file.mimetype),
+          mime_type: file.mimetype,
+          file_size: file.size,
+          storage_path: storagePath,
+          storage_bucket: bucket,
+          metadata: {
+            ...metadata,
+            uploadMethod: 'streaming',
+            uploadTimestamp: new Date().toISOString(),
+            formattedSize: formatFileSize(file.size),
+          },
+        }
+
+        // Create asset in database
+        const asset = await createAsset(assetData)
+
+        // Queue background jobs asynchronously (simplified version)
+        setImmediate(async () => {
+          try {
+            // Always queue metadata extraction for all files
+            const { metadataQueue } = await import('../config/queue.config')
+            const metadataJob = await createJob({
+              job_type: 'metadata',
+              asset_id: asset.id!,
+              status: 'pending',
+              priority: 1,
+              input_data: { autoQueued: true, reason: 'upload' },
+            })
+
+            await metadataQueue.add(
+              'metadata-extraction',
+              {
+                assetId: asset.id!,
+                jobType: 'metadata',
+                options: { autoQueued: true },
+                jobId: metadataJob.id,
+              },
+              {
+                jobId: `meta_${metadataJob.id}`,
+                priority: 1,
+              }
+            )
+
+            // Generate thumbnails for images
+            if (asset.file_type === 'image') {
+              const { thumbnailQueue } = await import('../config/queue.config')
+              const thumbnailJob = await createJob({
+                job_type: 'thumbnail',
+                asset_id: asset.id!,
+                status: 'pending',
+                priority: 2,
+                input_data: {
+                  autoQueued: true,
+                  reason: 'upload',
+                  size: '300x300',
+                },
+              })
+
+              await thumbnailQueue.add(
+                'thumbnail-generation',
+                {
+                  assetId: asset.id!,
+                  jobType: 'thumbnail',
+                  options: { autoQueued: true, size: '300x300' },
+                  jobId: thumbnailJob.id,
+                },
+                {
+                  jobId: `thumb_${thumbnailJob.id}`,
+                  priority: 2,
+                }
+              )
+            }
+          } catch (error) {
+            console.warn(
+              `Failed to queue background jobs for asset ${asset.id} (non-critical):`,
+              error
+            )
+          }
+        })
+
+        results.push({
+          filename: file.originalname,
+          assetId: asset.id,
+          objectName: storagePath,
+          bucket: bucket,
+          message: 'File uploaded successfully with streaming',
+          fileSize: file.size,
+        })
+
+        // Clean up temp file after successful upload
+        fs.unlinkSync(file.path)
+      } catch (fileError) {
+        console.error(`Failed to process file ${file.originalname}:`, fileError)
+        errors.push({
+          filename: file.originalname,
+          error:
+            fileError instanceof Error ? fileError.message : 'Unknown error',
+        })
+
+        // Clean up temp file even if processing failed
+        try {
+          fs.unlinkSync(file.path)
+        } catch (cleanupError) {
+          console.warn(
+            `Could not clean up temp file for ${file.originalname}:`,
+            cleanupError
+          )
+        }
+      }
     }
 
-    return res.json({
+    const response: any = {
       success: true,
-      message: 'Files uploaded successfully',
+      message: 'Upload processing completed with streaming',
       files: results,
-    })
+      totalFiles: files.length,
+      successfulUploads: results.length,
+      failedUploads: errors.length,
+    }
+
+    if (errors.length > 0) {
+      response.errors = errors
+      response.partialSuccess = true
+    }
+
+    return res.json(response)
   } catch (err) {
     console.error('Upload failed:', err)
-    return res.status(500).json({ error: 'Upload failed' })
+    return res.status(500).json({
+      success: false,
+      error: 'Upload failed',
+      details: err instanceof Error ? err.message : 'Unknown error',
+    })
   }
 })
 // Check for duplicate files before upload

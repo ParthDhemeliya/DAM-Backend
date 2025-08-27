@@ -545,7 +545,7 @@ export const deleteAsset = async (id: number): Promise<boolean> => {
       console.log('File deleted from MinIO:', asset.storage_path)
     } catch (minioError) {
       console.warn('Failed to delete file from MinIO:', minioError)
-      // Continue with database deletion even if MinIO deletion fails
+      // Continue with database deletion even if MinIO deletion
     }
 
     // Soft delete from database
@@ -594,114 +594,111 @@ async function checkDuplicateFile(
 }
 
 // Upload file to MinIO and create asset
-export const uploadAssetFile = async (
-  file: Express.Multer.File,
-  metadata?: any,
-  options?: { skipDuplicates?: boolean; replaceDuplicates?: boolean }
-): Promise<{
-  asset?: Asset
-  skipped?: boolean
-  replaced?: boolean
-  message: string
-}> => {
-  const functionId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+// export const uploadAssetFile = async (
+//   file: Express.Multer.File,
+//   metadata?: any,
+//   options?: { skipDuplicates?: boolean; replaceDuplicates?: boolean }
+// ): Promise<{
+//   asset?: Asset
+//   skipped?: boolean
+//   replaced?: boolean
+//   message: string
+// }> => {
+//   const functionId = Date.now() + '-' + Math.random().toString(36).substr(2, 9)
 
-  try {
-    // Validate upload options
-    if (options) {
-      validateUploadOptions(options)
-    }
+//   try {
+//     // Validate upload options
+//     if (options) {
+//       validateUploadOptions(options)
+//     }
 
-    // Skip duplicate checking for better performance during bulk uploads
-    // This can be re-enabled later if needed
-    const duplicateCheck = {
-      isDuplicate: false,
-      reason: 'Skipped for performance',
-    }
+//     // This can be re-enabled later if needed
+//     const duplicateCheck = {
+//       isDuplicate: false,
+//       reason: 'Skipped for performance',
+//     }
 
-    // Validate file type (keep this as it's fast)
-    const validation = validateFileForUpload(
-      file.originalname,
-      file.mimetype,
-      file.size
-    )
-    if (!validation.isValid) {
-      throw new Error(`File validation failed: ${validation.errors.join(', ')}`)
-    }
-    const fileType = validation.fileType
+//     // Validate file type (keep this as it's fast)
+//     const validation = validateFileForUpload(
+//       file.originalname,
+//       file.mimetype,
+//       file.size
+//     )
+//     if (!validation.isValid) {
+//       throw new Error(`File validation failed: ${validation.errors.join(', ')}`)
+//     }
+//     const fileType = validation.fileType
 
-    // Generate unique filename
-    const timestamp = Date.now()
-    const extension = path.extname(file.originalname)
-    const filename = `${timestamp}-${file.originalname}`
-    const storagePath = `assets/${filename}`
+//     // Generate unique filename
+//     const timestamp = Date.now()
+//     const extension = path.extname(file.originalname)
+//     const filename = `${timestamp}-${file.originalname}`
+//     const storagePath = `assets/${filename}`
 
-    // Upload file to storage first (this is the main bottleneck)
-    await uploadFile(storagePath, file.buffer)
+//     // Upload file to storage first (this is the main bottleneck)
+//     await uploadFile(storagePath, file.buffer)
 
-    // Skip content hash generation for better performance
-    const contentHash = 'skipped-for-performance'
+//     // Skip content hash generation for better performance
+//     const contentHash = 'skipped-for-performance'
 
-    // Create minimal metadata to speed up database insertion
-    const assetData: CreateAssetRequest = {
-      filename: file.originalname,
-      original_name: file.originalname,
-      file_type: fileType,
-      mime_type: file.mimetype,
-      file_size: file.size,
-      storage_path: storagePath,
-      storage_bucket: process.env.MINIO_BUCKET || 'dam-media',
-      metadata: {
-        ...metadata,
-        fileType: fileType,
-        extension: extension.substring(1),
-        description: metadata?.description || 'Uploaded via API',
-        uploadMethod: 'api',
-        formattedSize: formatFileSize(file.size),
-        uploadTimestamp: new Date().toISOString(),
-        contentHash: contentHash,
-      },
-    }
+//     // Create minimal metadata to speed up database insertion
+//     const assetData: CreateAssetRequest = {
+//       filename: file.originalname,
+//       original_name: file.originalname,
+//       file_type: fileType,
+//       mime_type: file.mimetype,
+//       file_size: file.size,
+//       storage_path: storagePath,
+//       storage_bucket: process.env.MINIO_BUCKET || 'dam-media',
+//       metadata: {
+//         ...metadata,
+//         fileType: fileType,
+//         extension: extension.substring(1),
+//         description: metadata?.description || 'Uploaded via API',
+//         uploadMethod: 'api',
+//         formattedSize: formatFileSize(file.size),
+//         uploadTimestamp: new Date().toISOString(),
+//         contentHash: contentHash,
+//       },
+//     }
 
-    // Create asset in database (this is fast)
-    const asset = await createAsset(assetData)
+//     // Create asset in database (this is fast)
+//     const asset = await createAsset(assetData)
 
-    // Track upload analytics (non-blocking)
-    try {
-      const { trackAssetUpload } = await import('./redis-analytics.service')
-      await trackAssetUpload(asset.id!, 'api', {
-        fileType: fileType,
-        fileSize: file.size,
-        uploadMethod: 'api',
-      })
-    } catch (error) {
-      console.warn('Failed to track upload analytics (non-critical):', error)
-      // Don't fail the upload if analytics tracking fails
-    }
+//     // Track upload analytics (non-blocking)
+//     try {
+//       const { trackAssetUpload } = await import('./redis-analytics.service')
+//       await trackAssetUpload(asset.id!, 'api', {
+//         fileType: fileType,
+//         fileSize: file.size,
+//         uploadMethod: 'api',
+//       })
+//     } catch (error) {
+//       console.warn('Failed to track upload analytics (non-critical):', error)
+//       // Don't fail the upload if analytics tracking fails
+//     }
+//     setImmediate(() => {
+//       queueAutoProcessingJobs(asset).catch((error) => {
+//         console.warn(
+//           `Failed to queue background jobs for asset ${asset.id} (non-critical):`,
+//           error
+//         )
+//         // Don't fail the upload if job queuing fails
+//       })
+//     })
 
-    // Queue background jobs asynchronously to not block the upload response
-    setImmediate(() => {
-      queueAutoProcessingJobs(asset).catch((error) => {
-        console.warn(
-          `Failed to queue background jobs for asset ${asset.id} (non-critical):`,
-          error
-        )
-        // Don't fail the upload if job queuing fails
-      })
-    })
-
-    return {
-      asset,
-      message:
-        duplicateCheck.isDuplicate && options?.replaceDuplicates
-          ? `Replaced: ${file.originalname}`
-          : `Uploaded: ${file.originalname}`,
-    }
-  } catch (error) {
-    console.error(`Error:`, error)
-    throw error
-  }
-}
+//     return {
+//       asset,
+//       message:
+//         duplicateCheck.isDuplicate && options?.replaceDuplicates
+//           ? `Replaced: ${file.originalname}`
+//           : `Uploaded: ${file.originalname}`,
+//     }
+//   } catch (error) {
+//     console.error(`Error:`, error)
+//     throw error
+//   }
+// }
 
 // Auto-queue background processing jobs based on file type
 async function queueAutoProcessingJobs(asset: Asset) {

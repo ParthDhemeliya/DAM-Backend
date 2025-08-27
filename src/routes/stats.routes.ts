@@ -1,426 +1,64 @@
-import { Router } from 'express'
-import { asyncHandler } from '../middleware/asyncHandler'
-import {
-  getDashboardStats,
-  getUploadStats,
-  getDownloadStats,
-  getLatestAssets,
-  getAssetAnalytics,
-} from '../services/stats.service'
-import {
-  trackAssetView,
-  trackAssetDownload,
-  getUserBehaviorAnalytics,
-  getRealTimeStats,
-} from '../services/redis-analytics.service'
-import {
-  syncRedisAnalytics,
-  resetRedisAnalytics,
-  getRedisAnalyticsStatus,
-} from '../utils/redis-sync'
+import { Router } from 'express';
+import { StatsController } from '../controllers/stats.controller';
 
-const router = Router()
+const router = Router();
+const statsController = new StatsController();
 
-// Get overall dashboard statistics
-router.get(
-  '/',
-  asyncHandler(async (req: any, res: any) => {
-    const stats = await getDashboardStats()
+// Get overall statistics
+router.get('/', statsController.getOverallStats);
 
-    res.json({
-      success: true,
-      data: stats,
-      message: 'Dashboard statistics retrieved successfully',
-    })
-  })
-)
+// Get asset statistics
+router.get('/assets', statsController.getAssetStats);
 
-// Get upload statistics
-router.get(
-  '/uploads',
-  asyncHandler(async (req: any, res: any) => {
-    const { period = 'month' } = req.query
+// Get job statistics
+router.get('/jobs', statsController.getJobStats);
 
-    // Validate period parameter
-    const validPeriods = ['day', 'week', 'month', 'year']
-    if (!validPeriods.includes(period)) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid period. Must be one of: ${validPeriods.join(', ')}`,
-      })
-    }
+// Get storage statistics
+router.get('/storage', statsController.getStorageStats);
 
-    const stats = await getUploadStats(period)
+// Get upload trends
+router.get('/trends', statsController.getUploadTrends);
 
-    res.json({
-      success: true,
-      data: stats,
-      message: `Upload statistics for ${period} retrieved successfully`,
-      period,
-    })
-  })
-)
+// Get file type distribution
+router.get('/file-types', statsController.getFileTypeDistribution);
 
-// Get download statistics
-router.get(
-  '/downloads',
-  asyncHandler(async (req: any, res: any) => {
-    const { period = 'month' } = req.query
+// Get category distribution
+router.get('/categories', statsController.getCategoryDistribution);
 
-    // Validate period parameter
-    const validPeriods = ['day', 'week', 'month', 'year']
-    if (!validPeriods.includes(period)) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid period. Must be one of: ${validPeriods.join(', ')}`,
-      })
-    }
+// Get author distribution
+router.get('/authors', statsController.getAuthorDistribution);
 
-    const stats = await getDownloadStats(period)
+// Get department distribution
+router.get('/departments', statsController.getDepartmentDistribution);
 
-    res.json({
-      success: true,
-      data: stats,
-      message: `Download statistics for ${period} retrieved successfully`,
-      period,
-    })
-  })
-)
+// Get project distribution
+router.get('/projects', statsController.getProjectDistribution);
 
-// Get latest assets
-router.get(
-  '/latest',
-  asyncHandler(async (req: any, res: any) => {
-    const { limit = 10 } = req.query
+// Get top assets by size
+router.get('/top-assets', statsController.getTopAssetsBySize);
 
-    // Validate limit parameter
-    const limitNum = parseInt(limit)
-    if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
-      return res.status(400).json({
-        success: false,
-        error: 'Limit must be a number between 1 and 100',
-      })
-    }
+// Get recent assets
+router.get('/recent-assets', statsController.getRecentAssets);
 
-    const assets = await getLatestAssets(limitNum)
+// Get asset growth rate
+router.get('/growth-rate', statsController.getAssetGrowthRate);
 
-    res.json({
-      success: true,
-      data: assets,
-      message: `Latest ${assets.length} assets retrieved successfully`,
-      count: assets.length,
-      limit: limitNum,
-    })
-  })
-)
+// Get hourly upload patterns
+router.get('/hourly-patterns', statsController.getHourlyUploadPatterns);
 
-// Get popular assets (most downloaded)
-router.get(
-  '/popular',
-  asyncHandler(async (req: any, res: any) => {
-    const { limit = 10 } = req.query
+// Get weekly upload patterns
+router.get('/weekly-patterns', statsController.getWeeklyUploadPatterns);
 
-    // Validate limit parameter
-    const limitNum = parseInt(limit)
-    if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
-      return res.status(400).json({
-        success: false,
-        error: 'Limit must be a number between 1 and 100',
-      })
-    }
+// Get job performance metrics
+router.get('/job-performance', statsController.getJobPerformanceMetrics);
 
-    // Get download stats which includes popular assets
-    const stats = await getDownloadStats('month')
-    const popularAssets = stats.popularAssets.slice(0, limitNum)
+// Get system health metrics
+router.get('/system-health', statsController.getSystemHealthMetrics);
 
-    res.json({
-      success: true,
-      data: popularAssets,
-      message: `Top ${popularAssets.length} popular assets retrieved successfully`,
-      count: popularAssets.length,
-      limit: limitNum,
-    })
-  })
-)
+// Get custom date range statistics
+router.get('/custom-range', statsController.getCustomDateRangeStats);
 
-// Get asset usage analytics for a specific asset
-router.get(
-  '/asset/:assetId/analytics',
-  asyncHandler(async (req: any, res: any) => {
-    const { assetId } = req.params
-    const { includeViews = 'true' } = req.query
+// Export statistics
+router.get('/export', statsController.exportStats);
 
-    // Validate assetId parameter
-    const assetIdNum = parseInt(assetId)
-    if (isNaN(assetIdNum) || assetIdNum < 1) {
-      return res.status(400).json({
-        success: false,
-        error: 'Asset ID must be a positive number',
-      })
-    }
-
-    const analytics = await getAssetAnalytics(assetIdNum)
-
-    // If Redis is unavailable, provide fallback data
-    if (!analytics) {
-      const fallbackAnalytics = {
-        assetId: assetIdNum,
-        filename: `Asset-${assetIdNum}`,
-        fileType: 'unknown',
-        totalViews: Math.floor(Math.random() * 100) + 20,
-        totalDownloads: Math.floor(Math.random() * 50) + 10,
-        totalAccesses: Math.floor(Math.random() * 150) + 30,
-        lastViewed: new Date(
-          Date.now() - Math.random() * 86400000
-        ).toISOString(),
-        lastDownloaded: new Date(
-          Date.now() - Math.random() * 172800000
-        ).toISOString(),
-        viewsToday: Math.floor(Math.random() * 20) + 5,
-        downloadsToday: Math.floor(Math.random() * 10) + 2,
-        viewsThisWeek: Math.floor(Math.random() * 50) + 15,
-        downloadsThisWeek: Math.floor(Math.random() * 25) + 8,
-        viewsThisMonth: Math.floor(Math.random() * 200) + 50,
-        downloadsThisMonth: Math.floor(Math.random() * 100) + 25,
-        accessFrequency: 'medium' as const,
-        popularityScore: Math.floor(Math.random() * 100) + 30,
-        note: 'Fallback data - Redis analytics unavailable',
-      }
-
-      return res.json({
-        success: true,
-        data: fallbackAnalytics,
-        message: 'Asset analytics retrieved (fallback data)',
-        assetId: assetIdNum,
-        redisStatus: 'unavailable',
-      })
-    }
-
-    res.json({
-      success: true,
-      data: analytics,
-      message: `Asset analytics retrieved successfully`,
-      assetId: assetIdNum,
-      redisStatus: 'available',
-    })
-  })
-)
-
-// Track asset view (for analytics)
-router.post(
-  '/track-view',
-  asyncHandler(async (req: any, res: any) => {
-    const { assetId, userId, metadata } = req.body
-
-    if (!assetId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Asset ID is required',
-      })
-    }
-
-    // Validate assetId
-    const assetIdNum = parseInt(assetId)
-    if (isNaN(assetIdNum) || assetIdNum < 1) {
-      return res.status(400).json({
-        success: false,
-        error: 'Asset ID must be a positive number',
-      })
-    }
-
-    // Track the view
-    await trackAssetView(assetIdNum, userId, metadata)
-
-    res.json({
-      success: true,
-      message: 'Asset view tracked successfully',
-      assetId: assetIdNum,
-    })
-  })
-)
-
-// Track asset download (for analytics)
-router.post(
-  '/track-download',
-  asyncHandler(async (req: any, res: any) => {
-    const { assetId, userId, metadata } = req.body
-
-    if (!assetId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Asset ID is required',
-      })
-    }
-
-    // Validate assetId
-    const assetIdNum = parseInt(assetId)
-    if (isNaN(assetIdNum) || assetIdNum < 1) {
-      return res.status(400).json({
-        success: false,
-        error: 'Asset ID must be a positive number',
-      })
-    }
-
-    // Track the download
-    await trackAssetDownload(assetIdNum, userId, metadata)
-
-    res.json({
-      success: true,
-      message: 'Asset download tracked successfully',
-      assetId: assetIdNum,
-    })
-  })
-)
-
-// Get user behavior analytics
-router.get(
-  '/user/:userId/behavior',
-  asyncHandler(async (req: any, res: any) => {
-    const { userId } = req.params
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: 'User ID is required',
-      })
-    }
-
-    const behavior = await getUserBehaviorAnalytics(userId)
-
-    // If Redis is unavailable, provide fallback data
-    if (!behavior) {
-      const fallbackBehavior = {
-        userId,
-        totalAssetsAccessed: Math.floor(Math.random() * 50) + 10,
-        totalViews: Math.floor(Math.random() * 200) + 50,
-        totalDownloads: Math.floor(Math.random() * 100) + 20,
-        lastActivity: new Date().toISOString(),
-        favoriteFileTypes: ['image', 'video', 'document'],
-        activityPattern: {
-          morning: Math.floor(Math.random() * 30) + 10,
-          afternoon: Math.floor(Math.random() * 40) + 20,
-          evening: Math.floor(Math.random() * 25) + 15,
-          night: Math.floor(Math.random() * 15) + 5,
-        },
-        userSegment: 'regular' as const,
-        note: 'Fallback data - Redis analytics unavailable',
-      }
-
-      return res.json({
-        success: true,
-        data: fallbackBehavior,
-        message: 'User behavior analytics retrieved (fallback data)',
-        userId,
-        redisStatus: 'unavailable',
-      })
-    }
-
-    res.json({
-      success: true,
-      data: behavior,
-      message: `User behavior analytics retrieved successfully`,
-      userId,
-      redisStatus: 'available',
-    })
-  })
-)
-
-// Get real-time statistics
-router.get(
-  '/realtime',
-  asyncHandler(async (req: any, res: any) => {
-    const stats = await getRealTimeStats()
-
-    // If Redis is unavailable, provide fallback data
-    if (!stats || Object.keys(stats).length === 0) {
-      const fallbackStats = {
-        totalViews: Math.floor(Math.random() * 1000) + 500,
-        totalDownloads: Math.floor(Math.random() * 500) + 200,
-        totalUploads: Math.floor(Math.random() * 300) + 100,
-        timestamp: new Date().toISOString(),
-        note: 'Fallback data - Redis analytics unavailable',
-      }
-
-      return res.json({
-        success: true,
-        data: fallbackStats,
-        message: 'Real-time statistics retrieved (fallback data)',
-        timestamp: new Date().toISOString(),
-        redisStatus: 'unavailable',
-      })
-    }
-
-    res.json({
-      success: true,
-      data: stats,
-      message: 'Real-time statistics retrieved successfully',
-      timestamp: new Date().toISOString(),
-      redisStatus: 'available',
-    })
-  })
-)
-
-// Sync Redis analytics with database (admin only)
-router.post(
-  '/sync-redis',
-  asyncHandler(async (req: any, res: any) => {
-    try {
-      const result = await syncRedisAnalytics()
-      res.json({
-        success: true,
-        data: result,
-        message: 'Redis analytics synchronized successfully',
-      })
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to sync Redis analytics',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      })
-    }
-  })
-)
-
-// Reset Redis analytics (admin only)
-router.post(
-  '/reset-redis',
-  asyncHandler(async (req: any, res: any) => {
-    try {
-      const result = await resetRedisAnalytics()
-      res.json({
-        success: true,
-        data: result,
-        message: 'Redis analytics reset successfully',
-      })
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to reset Redis analytics',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      })
-    }
-  })
-)
-
-// Get Redis analytics status
-router.get(
-  '/redis-status',
-  asyncHandler(async (req: any, res: any) => {
-    try {
-      const status = await getRedisAnalyticsStatus()
-      res.json({
-        success: true,
-        data: status,
-        message: 'Redis analytics status retrieved successfully',
-      })
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to get Redis analytics status',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      })
-    }
-  })
-)
-
-export default router
+export default router;

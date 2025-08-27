@@ -5,26 +5,26 @@ import {
   conversionQueue,
   cleanupQueue,
   QUEUE_NAMES,
-} from '../config/queue.config'
-import { createJob } from './job.service'
+} from '../config/queue.config';
+import { createJob } from './job.service';
 
 // Queue job types
 export interface QueueJobData {
-  assetId: number
-  priority?: number
-  options?: any
-  delay?: number
+  assetId: number;
+  priority?: number;
+  options?: any;
+  delay?: number;
 }
 
 // Video job data interface
 export interface VideoJobData extends QueueJobData {
-  operation: 'transcode' | 'thumbnail' | 'metadata' | 'all'
+  operation: 'transcode' | 'thumbnail' | 'metadata' | 'all';
   options?: {
-    resolution?: '1080p' | '720p' | '480p'
-    format?: 'mp4' | 'webm' | 'mov'
-    quality?: 'high' | 'medium' | 'low'
-    thumbnailTime?: string
-  }
+    resolution?: '1080p' | '720p' | '480p';
+    format?: 'mp4' | 'webm' | 'mov';
+    quality?: 'high' | 'medium' | 'low';
+    thumbnailTime?: string;
+  };
 }
 
 // Add asset processing job
@@ -38,63 +38,63 @@ export const addAssetProcessingJob = async (
       asset_id: data.assetId,
       status: 'pending',
       priority: data.priority || 1,
-    })
+    });
 
     if (!jobRecord.id) {
-      throw new Error('Failed to create job record - no ID returned')
+      throw new Error('Failed to create job record - no ID returned');
     }
 
     // Add job to appropriate queue
-    let queue
-    let jobData: any
+    let queue;
+    let jobData: any;
 
     switch (jobType) {
       case 'thumbnail':
-        queue = thumbnailQueue
+        queue = thumbnailQueue;
         jobData = {
           assetId: data.assetId,
           jobType: 'thumbnail',
           priority: data.priority,
           options: data.options,
           jobId: jobRecord.id,
-        }
-        break
+        };
+        break;
 
       case 'metadata':
-        queue = metadataQueue
+        queue = metadataQueue;
         jobData = {
           assetId: data.assetId,
           jobType: 'metadata',
           priority: data.priority,
           options: data.options,
           jobId: jobRecord.id,
-        }
-        break
+        };
+        break;
 
       case 'conversion':
-        queue = conversionQueue
+        queue = conversionQueue;
         jobData = {
           assetId: data.assetId,
           jobType: 'conversion',
           priority: data.priority,
           options: data.options,
           jobId: jobRecord.id,
-        }
-        break
+        };
+        break;
 
       case 'cleanup':
-        queue = cleanupQueue
+        queue = cleanupQueue;
         jobData = {
           assetId: data.assetId,
           jobType: 'cleanup',
           priority: data.priority,
           options: data.options,
           jobId: jobRecord.id,
-        }
-        break
+        };
+        break;
 
       default:
-        throw new Error(`Unknown job type: ${jobType}`)
+        throw new Error(`Unknown job type: ${jobType}`);
     }
 
     // Add job to queue with delay if specified
@@ -103,27 +103,27 @@ export const addAssetProcessingJob = async (
       priority: data.priority || 1,
       removeOnComplete: 100,
       removeOnFail: 50,
-    }
+    };
 
     if (data.delay) {
-      jobOptions.delay = data.delay
+      jobOptions.delay = data.delay;
     }
 
-    const job = await queue.add(jobType, jobData, jobOptions)
+    const job = await queue.add(jobType, jobData, jobOptions);
 
-    return job
+    return job;
   } catch (error) {
-    console.error(`Failed to add ${jobType} job:`, error)
-    throw error
+    console.error(`Failed to add ${jobType} job:`, error);
+    throw error;
   }
-}
+};
 
 // Add video processing job
 export const addVideoJob = async (data: VideoJobData) => {
   try {
     console.log(
       `Adding video ${data.operation} job to queue for asset ${data.assetId}`
-    )
+    );
 
     // Create job record in database
     const jobRecord = await createJob({
@@ -131,23 +131,23 @@ export const addVideoJob = async (data: VideoJobData) => {
       asset_id: data.assetId,
       status: 'pending',
       priority: data.priority || 1,
-    })
+    });
 
     // Check if job was created successfully
     if (!jobRecord.id) {
-      throw new Error('Failed to create video job record - no ID returned')
+      throw new Error('Failed to create video job record - no ID returned');
     }
 
-    // Add job to video processing queue \
+    // Add job to video processing queue
     const jobOptions: any = {
       jobId: `video_${jobRecord.id}`,
       priority: data.priority || 1,
       removeOnComplete: 100,
       removeOnFail: 50,
-    }
+    };
 
     if (data.delay) {
-      jobOptions.delay = data.delay
+      jobOptions.delay = data.delay;
     }
 
     const job = await conversionQueue.add(
@@ -159,15 +159,17 @@ export const addVideoJob = async (data: VideoJobData) => {
         jobId: jobRecord.id,
       },
       jobOptions
-    )
+    );
 
-    console.log(`Video ${data.operation} job added to queue with ID: ${job.id}`)
-    return job
+    console.log(
+      `Video ${data.operation} job added to queue with ID: ${job.id}`
+    );
+    return job;
   } catch (error) {
-    console.error(`Failed to add video ${data.operation} job:`, error)
-    throw error
+    console.error(`Failed to add video ${data.operation} job:`, error);
+    throw error;
   }
-}
+};
 
 // Add multiple processing jobs for an asset
 export const addAssetProcessingJobs = async (
@@ -179,47 +181,47 @@ export const addAssetProcessingJobs = async (
     console.log(
       `Adding multiple processing jobs for asset ${assetId}:`,
       jobTypes
-    )
+    );
 
-    const jobs = []
+    const jobs = [];
 
     for (const jobType of jobTypes) {
       const job = await addAssetProcessingJob(jobType, {
         assetId,
         options,
         priority: 1,
-      })
-      jobs.push(job)
+      });
+      jobs.push(job);
     }
 
-    console.log(`Added ${jobs.length} processing jobs for asset ${assetId}`)
+    console.log(`Added ${jobs.length} processing jobs for asset ${assetId}`);
 
-    return jobs
+    return jobs;
   } catch (error) {
-    console.error(`Failed to add processing jobs for asset ${assetId}:`, error)
-    throw error
+    console.error(`Failed to add processing jobs for asset ${assetId}:`, error);
+    throw error;
   }
-}
+};
 
 // Add thumbnail generation job
 export const addThumbnailJob = async (data: QueueJobData) => {
-  return addAssetProcessingJob('thumbnail', data)
-}
+  return addAssetProcessingJob('thumbnail', data);
+};
 
 // Add metadata extraction job
 export const addMetadataJob = async (data: QueueJobData) => {
-  return addAssetProcessingJob('metadata', data)
-}
+  return addAssetProcessingJob('metadata', data);
+};
 
 // Add file conversion job
 export const addConversionJob = async (data: QueueJobData) => {
-  return addAssetProcessingJob('conversion', data)
-}
+  return addAssetProcessingJob('conversion', data);
+};
 
 // Add cleanup job
 export const addCleanupJob = async (data: QueueJobData) => {
-  return addAssetProcessingJob('cleanup', data)
-}
+  return addAssetProcessingJob('cleanup', data);
+};
 
 // Get video jobs by asset
 export const getVideoJobsByAsset = async (
@@ -231,12 +233,12 @@ export const getVideoJobsByAsset = async (
   try {
     // This would need to be implemented in the job service
     // For now, return empty array
-    return []
+    return [];
   } catch (error) {
-    console.error(`Failed to get video jobs for asset ${assetId}:`, error)
-    throw error
+    console.error(`Failed to get video jobs for asset ${assetId}:`, error);
+    throw error;
   }
-}
+};
 
 // Get queue statistics
 export const getQueueStats = async () => {
@@ -247,14 +249,14 @@ export const getQueueStats = async () => {
       metadata: await metadataQueue.getJobCounts(),
       conversion: await conversionQueue.getJobCounts(),
       cleanup: await cleanupQueue.getJobCounts(),
-    }
+    };
 
-    return stats
+    return stats;
   } catch (error) {
-    console.error(' Failed to get queue stats:', error)
-    throw error
+    console.error('Failed to get queue stats:', error);
+    throw error;
   }
-}
+};
 
 // Pause all queues
 export const pauseAllQueues = async () => {
@@ -265,32 +267,31 @@ export const pauseAllQueues = async () => {
       metadataQueue.pause(),
       conversionQueue.pause(),
       cleanupQueue.pause(),
-    ])
+    ]);
 
-    console.log('  All queues paused')
+    console.log('All queues paused');
   } catch (error) {
-    console.error('Failed to pause queues:', error)
-    throw error
+    console.error('Failed to pause queues:', error);
+    throw error;
   }
-}
+};
 
 // Resume all queues
 export const resumeAllQueues = async () => {
   try {
     await Promise.all([
       assetProcessingQueue.resume(),
-      thumbnailQueue.resume(),
       metadataQueue.resume(),
       conversionQueue.resume(),
       cleanupQueue.resume(),
-    ])
+    ]);
 
-    console.log(' All queues resumed')
+    console.log('All queues resumed');
   } catch (error) {
-    console.error(' Failed to resume queues:', error)
-    throw error
+    console.error('Failed to resume queues:', error);
+    throw error;
   }
-}
+};
 
 // Clear all queues (use with caution!)
 export const clearAllQueues = async () => {
@@ -301,11 +302,11 @@ export const clearAllQueues = async () => {
       metadataQueue.obliterate(),
       conversionQueue.obliterate(),
       cleanupQueue.obliterate(),
-    ])
+    ]);
 
-    console.log(' All queues cleared')
+    console.log('All queues cleared');
   } catch (error) {
-    console.error('Failed to clear queues:', error)
-    throw error
+    console.error('Failed to clear queues:', error);
+    throw error;
   }
-}
+};

@@ -1,5 +1,8 @@
-import { Request, Response, NextFunction } from 'express'
-import { createValidationError, createUnauthorizedError } from '../utils/errors'
+import { Request, Response, NextFunction } from 'express';
+import {
+  createValidationError,
+  createUnauthorizedError,
+} from '../utils/errors';
 
 // Simple error response function
 const createErrorResponse = (
@@ -12,7 +15,7 @@ const createErrorResponse = (
   timestamp: new Date().toISOString(),
   path: req.originalUrl,
   method: req.method,
-})
+});
 
 export const errorHandler = (
   error: Error | any,
@@ -27,20 +30,20 @@ export const errorHandler = (
     method: req.method,
     ip: req.ip,
     userAgent: req.get('User-Agent'),
-  })
+  });
 
   // If it's our custom API error, use its status code
   if (error.statusCode) {
-    const errorResponse = createErrorResponse(error, req, error.statusCode)
-    res.status(error.statusCode).json(errorResponse)
-    return
+    const errorResponse = createErrorResponse(error, req, error.statusCode);
+    res.status(error.statusCode).json(errorResponse);
+    return;
   }
 
   // Handle specific error types
   if (error.name === 'ValidationError') {
-    const errorResponse = createErrorResponse(error, req, 400)
-    res.status(400).json(errorResponse)
-    return
+    const errorResponse = createErrorResponse(error, req, 400);
+    res.status(400).json(errorResponse);
+    return;
   }
 
   if (error.name === 'CastError') {
@@ -48,9 +51,9 @@ export const errorHandler = (
       createValidationError('Invalid ID format'),
       req,
       400
-    )
-    res.status(400).json(errorResponse)
-    return
+    );
+    res.status(400).json(errorResponse);
+    return;
   }
 
   if (error.name === 'JWTError') {
@@ -58,9 +61,9 @@ export const errorHandler = (
       createUnauthorizedError('Invalid token'),
       req,
       401
-    )
-    res.status(401).json(errorResponse)
-    return
+    );
+    res.status(401).json(errorResponse);
+    return;
   }
 
   if (error.name === 'TokenExpired') {
@@ -68,12 +71,12 @@ export const errorHandler = (
       createUnauthorizedError('Token expired'),
       req,
       401
-    )
-    res.status(401).json(errorResponse)
-    return
+    );
+    res.status(401).json(errorResponse);
+    return;
   }
 
   // Default error response
-  const errorResponse = createErrorResponse(error, req, 500)
-  res.status(500).json(errorResponse)
-}
+  const errorResponse = createErrorResponse(error, req, 500);
+  res.status(500).json(errorResponse);
+};

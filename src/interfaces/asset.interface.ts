@@ -1,35 +1,35 @@
 export interface Asset {
-  id: number
-  filename: string
-  original_name: string
-  file_type: FileType
-  mime_type: string
-  file_size: number
-  storage_path: string
-  storage_bucket: string
-  status: AssetStatus
-  metadata: AssetMetadata
-  created_at: Date
-  updated_at: Date
-  processed_at?: Date
-  deleted_at?: Date
+  id: number;
+  filename: string;
+  original_name: string;
+  file_type: FileType;
+  mime_type: string;
+  file_size: number;
+  storage_path: string;
+  storage_bucket: string;
+  status: AssetStatus;
+  metadata: AssetMetadata;
+  created_at: Date;
+  updated_at: Date;
+  processed_at?: Date;
+  deleted_at?: Date;
 }
 
 export interface CreateAssetRequest {
-  filename: string
-  original_name: string
-  file_type: FileType
-  mime_type: string
-  file_size: number
-  storage_path: string
-  storage_bucket?: string
-  metadata?: AssetMetadata
+  filename: string;
+  original_name: string;
+  file_type: FileType;
+  mime_type: string;
+  file_size: number;
+  storage_path: string;
+  storage_bucket?: string;
+  metadata?: AssetMetadata;
 }
 
 export interface UpdateAssetRequest {
-  filename?: string
-  status?: AssetStatus
-  metadata?: AssetMetadata
+  filename?: string;
+  status?: AssetStatus;
+  metadata?: AssetMetadata;
 }
 
 // File type categorization
@@ -44,64 +44,64 @@ export type FileType =
   | 'code'
   | 'font'
   | '3d'
-  | 'other'
+  | 'other';
 
 export type AssetStatus =
   | 'uploaded'
   | 'processing'
   | 'processed'
   | 'failed'
-  | 'deleted'
+  | 'deleted';
 
 export interface AssetMetadata {
-  description?: string
-  category?: string
-  tags?: string[]
-  author?: string
-  department?: string
-  project?: string
-  version?: string
-  language?: string
-  duration?: number
+  description?: string;
+  category?: string;
+  tags?: string[];
+  author?: string;
+  department?: string;
+  project?: string;
+  version?: string;
+  language?: string;
+  duration?: number;
   dimensions?: {
-    width: number
-    height: number
-  }
-  bitrate?: number
-  sampleRate?: number
-  frameRate?: number
-  colorSpace?: string
-  compression?: string
-  quality?: number
-  orientation?: number
+    width: number;
+    height: number;
+  };
+  bitrate?: number;
+  sampleRate?: number;
+  frameRate?: number;
+  colorSpace?: string;
+  compression?: string;
+  quality?: number;
+  orientation?: number;
   gps?: {
-    latitude: number
-    longitude: number
-  }
+    latitude: number;
+    longitude: number;
+  };
   // Duplicate detection and file management
-  contentHash?: string
-  fileType?: string
-  extension?: string
-  uploadMethod?: string
-  formattedSize?: string
-  uploadTimestamp?: string
-  replacedFrom?: string
-  replacedAt?: string
+  contentHash?: string;
+  fileType?: string;
+  extension?: string;
+  uploadMethod?: string;
+  formattedSize?: string;
+  uploadTimestamp?: string;
+  replacedFrom?: string;
+  replacedAt?: string;
 
   // Processing results
-  thumbnail_path?: string
-  thumbnail_generated?: boolean
+  thumbnail_path?: string;
+  thumbnail_generated?: boolean;
   thumbnail_dimensions?: {
-    width: number
-    height: number
-  }
+    width: number;
+    height: number;
+  };
   video_transcode?: {
-    success: boolean
-    resolutions?: string[]
-    output_paths?: string[]
-  }
+    success: boolean;
+    resolutions?: string[];
+    output_paths?: string[];
+  };
 
-  custom?: Record<string, any>
+  custom?: Record<string, any>;
 }
 
 // File type detection utilities
@@ -188,7 +188,7 @@ export const FILE_TYPE_MAPPING: Record<string, FileType> = {
   'model/gltf': '3d',
   'model/glb': '3d',
   'application/x-blender': '3d',
-}
+};
 
 // File size limits for different types
 export const FILE_SIZE_LIMITS: Record<FileType, number> = {
@@ -203,7 +203,7 @@ export const FILE_SIZE_LIMITS: Record<FileType, number> = {
   font: 50 * 1024 * 1024,
   '3d': 2 * 1024 * 1024 * 1024,
   other: 100 * 1024 * 1024,
-}
+};
 
 // Allowed file extensions for each type
 export const ALLOWED_EXTENSIONS: Record<FileType, string[]> = {
@@ -245,4 +245,4 @@ export const ALLOWED_EXTENSIONS: Record<FileType, string[]> = {
   font: ['ttf', 'otf', 'woff', 'woff2'],
   '3d': ['obj', 'fbx', 'stl', 'gltf', 'glb', 'blend'],
   other: [],
-}
+};

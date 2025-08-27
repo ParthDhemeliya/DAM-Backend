@@ -5,7 +5,7 @@ export const createValidationError = (message: string) => ({
   statusCode: 400,
   isOperational: true,
   stack: new Error().stack,
-})
+});
 
 export const createUnauthorizedError = (
   message: string = 'Unauthorized access'
@@ -15,4 +15,4 @@ export const createUnauthorizedError = (
   statusCode: 401,
   isOperational: true,
   stack: new Error().stack,
-})
+});

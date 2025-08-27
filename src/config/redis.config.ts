@@ -1,7 +1,7 @@
-import Redis from 'ioredis'
-import dotenv from 'dotenv'
+import Redis from 'ioredis';
+import dotenv from 'dotenv';
 
-dotenv.config()
+dotenv.config();
 
 // Redis configuration
 const redisConfig = {
@@ -11,62 +11,62 @@ const redisConfig = {
   db: parseInt(process.env.REDIS_DB || '0'),
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
-}
+};
 
 // Create Redis client
-let redisClient: Redis | null = null
+let redisClient: Redis | null = null;
 
 // Initialize Redis connection
 export const initRedis = async (): Promise<Redis> => {
   try {
     if (!redisClient) {
-      redisClient = new Redis(redisConfig)
+      redisClient = new Redis(redisConfig);
 
       redisClient.on('connect', () => {
-        console.log('Redis: Connected successfully')
-      })
+        console.log('Redis: Connected successfully');
+      });
 
-      redisClient.on('error', (error) => {
-        console.error('Redis: Connection error:', error)
-      })
+      redisClient.on('error', error => {
+        console.error('Redis: Connection error:', error);
+      });
 
       redisClient.on('close', () => {
-        console.log('Redis: Connection closed')
-      })
+        console.log('Redis: Connection closed');
+      });
     }
 
-    return redisClient
+    return redisClient;
   } catch (error) {
-    console.error('Redis: Failed to initialize:', error)
-    throw error
+    console.error('Redis: Failed to initialize:', error);
+    throw error;
   }
-}
+};
 
 // Get Redis client instance
 export const getRedisClient = (): Redis | null => {
-  return redisClient
-}
+  return redisClient;
+};
 
 // Test Redis connection
 export const testRedisConnection = async (): Promise<boolean> => {
   try {
-    const client = await initRedis()
-    await client.ping()
-    return true
+    const client = await initRedis();
+    await client.ping();
+    return true;
   } catch (error) {
-    console.error('Redis: Connection test failed:', error)
-    return false
+    console.error('Redis: Connection test failed:', error);
+    return false;
   }
-}
+};
 
 // Close Redis connection
 export const closeRedis = async (): Promise<void> => {
   if (redisClient) {
-    await redisClient.quit()
-    redisClient = null
-    console.log('Redis: Connection closed')
+    await redisClient.quit();
+    redisClient = null;
+    console.log('Redis: Connection closed');
   }
-}
+};
 
 // Analytics key patterns
 export const ANALYTICS_KEYS = {
@@ -98,6 +98,6 @@ export const ANALYTICS_KEYS = {
   FILE_TYPE_VIEWS: (fileType: string) => `stats:filetype:${fileType}:views`,
   FILE_TYPE_DOWNLOADS: (fileType: string) =>
     `stats:filetype:${fileType}:downloads`,
-}
+};
 
-export default redisConfig
+export default redisConfig;

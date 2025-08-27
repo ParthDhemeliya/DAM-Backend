@@ -1,119 +1,61 @@
-import { Router } from 'express'
-import {
-  createJob,
-  getJobById,
-  getAllJobs,
-  updateJob,
-  deleteJob,
-  getJobsByAssetId,
-} from '../services/job.service'
-import { CreateJobRequest, UpdateJobRequest } from '../interfaces/job.interface'
+import { Router } from 'express';
+import { JobController } from '../controllers/job.controller';
 
-const router = Router()
+const router = Router();
+const jobController = new JobController();
 
 // Get all jobs
-router.get('/', async (req, res) => {
-  try {
-    const jobs = await getAllJobs()
-    res.json({ success: true, data: jobs, count: jobs.length })
-  } catch (error) {
-    console.error('Error getting all jobs:', error)
-    res.status(500).json({ success: false, error: 'Failed to get jobs' })
-  }
-})
+router.get('/', jobController.getAllJobs);
 
 // Get job by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id)
-    const job = await getJobById(id)
+router.get('/:id', jobController.getJobById);
 
-    if (!job) {
-      return res.status(404).json({ success: false, error: 'Job not found' })
-    }
-
-    res.json({ success: true, data: job })
-  } catch (error) {
-    console.error('Error getting job by ID:', error)
-    res.status(500).json({ success: false, error: 'Failed to get job' })
-  }
-})
-
-// Get jobs by asset ID
-router.get('/asset/:assetId', async (req, res) => {
-  try {
-    const assetId = parseInt(req.params.assetId)
-    const jobs = await getJobsByAssetId(assetId)
-    res.json({ success: true, data: jobs, count: jobs.length })
-  } catch (error) {
-    console.error('Error getting jobs by asset ID:', error)
-    res
-      .status(500)
-      .json({ success: false, error: 'Failed to get jobs by asset' })
-  }
-})
-
-//  Create new job
-router.post('/', async (req, res) => {
-  try {
-    const jobData: CreateJobRequest = req.body
-    const job = await createJob(jobData)
-    res
-      .status(201)
-      .json({ success: true, data: job, message: 'Job created successfully' })
-  } catch (error) {
-    console.error('Error creating job:', error)
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error occurred'
-    res.status(400).json({
-      success: false,
-      error: 'Failed to create job',
-      details: errorMessage,
-      receivedData: req.body,
-    })
-  }
-})
+// Create new job
+router.post('/', jobController.createJob);
 
 // Update job
-router.put('/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id)
-    const updateData: UpdateJobRequest = req.body
-    const job = await updateJob(id, updateData)
+router.put('/:id', jobController.updateJob);
 
-    if (!job) {
-      return res.status(404).json({ success: false, error: 'Job not found' })
-    }
+// Delete job
+router.delete('/:id', jobController.deleteJob);
 
-    res.json({ success: true, data: job, message: 'Job updated successfully' })
-  } catch (error) {
-    console.error('Error updating job:', error)
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error occurred'
-    res.status(400).json({
-      success: false,
-      error: 'Failed to update job',
-      details: errorMessage,
-      receivedData: req.body,
-    })
-  }
-})
+// Get jobs by asset ID
+router.get('/asset/:assetId', jobController.getJobsByAssetId);
 
-//  Delete job
-router.delete('/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id)
-    const deleted = await deleteJob(id)
+// Get jobs by status
+router.get('/status/:status', jobController.getJobsByStatus);
 
-    if (!deleted) {
-      return res.status(404).json({ success: false, error: 'Job not found' })
-    }
+// Get jobs by type
+router.get('/type/:jobType', jobController.getJobsByType);
 
-    res.json({ success: true, message: 'Job deleted successfully' })
-  } catch (error) {
-    console.error('Error deleting job:', error)
-    res.status(500).json({ success: false, error: 'Failed to delete job' })
-  }
-})
+// Get pending jobs
+router.get('/pending', jobController.getPendingJobs);
 
-export default router
+// Get running jobs
+router.get('/running', jobController.getRunningJobs);
+
+// Get completed jobs
+router.get('/completed', jobController.getCompletedJobs);
+
+// Get failed jobs
+router.get('/failed', jobController.getFailedJobs);
+
+// Update job status
+router.patch('/:id/status', jobController.updateJobStatus);
+
+// Get job statistics
+router.get('/stats', jobController.getJobStats);
+
+// Retry failed job
+router.post('/:id/retry', jobController.retryJob);
+
+// Cancel running job
+router.post('/:id/cancel', jobController.cancelJob);
+
+// Bulk update jobs
+router.patch('/bulk', jobController.bulkUpdateJobs);
+
+// Cleanup old jobs
+router.delete('/cleanup', jobController.cleanupOldJobs);
+
+export default router;
